@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug DDP (1 GPU / 1 process)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "torch.distributed.run",
+            "args": [
+                "--standalone",
+                "--nnodes=1",
+                "--nproc_per_node=1",
+                "training_scripts/train.py",
+                "--config",
+                "statics/doc/ffdn_train.yaml"
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0",
+                "PYTHONPATH":"/home/59435a/Forensic_hub",
+            },
+            "cwd": "${workspaceFolder}/ForensicHub",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        }
+    ]
+}

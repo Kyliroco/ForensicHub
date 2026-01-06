@@ -35,10 +35,10 @@ class DocDataset(BaseDataset):
         self.path = path
         self.suffix_img = suffix_img
         self.suffix_mask = suffix_mask
-        if dct_path:
-            # other_files/qt_table_ori.pk
-            with open(dct_path, 'rb') as f:
-                self.qtables = pickle.load(f)
+        # if dct_path:
+            # # other_files/qt_table_ori.pk
+            # with open(dct_path, 'rb') as f:
+            #     self.qtables = pickle.load(f)
         super().__init__(path=path, **kwargs)
         print(path, self.__len__, 'train:', train)
 
@@ -54,25 +54,26 @@ class DocDataset(BaseDataset):
         image = Image.open(img_path)
         mask = np.clip(cv2.imread(mask_path, 0), 0, 1)
         h,w = image.size
-        if self.train: # random-resize + crop
+        if self.train: # random-compression + crop
+            # A modifier laisser certaines images non altéré , utiliser mes matrice de compression et aucun interet de  faire le qtb.max>61
             if self.dct_path:
                 with tempfile.NamedTemporaryFile(delete=True) as tmp:
                     image.save(tmp,"JPEG",quality=random.randint(75, 100))
                     jpg = jpegio.read(tmp.name)
                     dct = jpg.coef_arrays[0].copy()
                     qtb = jpg.quant_tables[0].copy()
-                    if qtb.max()>61:
-                        print("WARNING! The image quality is too low, exceeding the model's capabilities. This will lead to bad results!")
-                        qtb = self.qtables[75]
+                    # if qtb.max()>61:
+                    #     print("WARNING! The image quality is too low, exceeding the model's capabilities. This will lead to bad results!")
+                    #     qtb = self.qtables[75]
                     image = Image.open(tmp.name)
         else:
             if self.dct_path:
                 jpg = jpegio.read(img_path)
                 dct = jpg.coef_arrays[0].copy()
                 qtb = jpg.quant_tables[0].copy()
-                if qtb.max()>61:
-                    print("WARNING! The image quality is too low, exceeding the model's capabilities. This will lead to bad results!")
-                    qtb = self.qtables[75]
+                # if qtb.max()>61:
+                #     print("WARNING! The image quality is too low, exceeding the model's capabilities. This will lead to bad results!")
+                #     qtb = self.qtables[75]
         image = np.array(image)
         if self.common_transform:
             output = self.common_transform(image=image, mask=mask)
@@ -84,7 +85,7 @@ class DocDataset(BaseDataset):
         if self.post_transform:
             image = self.post_transform(image=image)['image']
         if self.dct_path:
-            return {'image': image, 'mask': mask, 'label':label, 'DCT_coef': np.clip(np.abs(dct), 0,20), 'qtables': qtb}
+            return {'image': image, 'mask': mask, 'label':label, 'dct': np.clip(np.abs(dct), 0,20), 'qt': qtb}
         else:
             return {'image': image, 'mask': mask, 'label':label}
 

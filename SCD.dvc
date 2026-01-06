@@ -1,0 +1,14 @@
+md5: f4e56d02d660b0172b6773317aadd75c
+frozen: true
+deps:
+- path: data/document/DocTamperV1/SCD
+  repo:
+    url: git@github.maif.io:IODA/data_registry.git
+    rev: DocTamperV1-SCD@1.0.0
+    rev_lock: 5e5174f6ccf09bb7225100536056585da905abd4
+outs:
+- md5: e853afa25b5ad76332337a6ad8346eb7.dir
+  size: 2010477474
+  nfiles: 36000
+  hash: md5
+  path: SCD

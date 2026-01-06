@@ -95,6 +95,7 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
         sampler_train = torch.utils.data.DistributedSampler(
             train_dataset, num_replicas=num_tasks, rank=global_rank, shuffle=True
         )
+        sampler_test = None
         for test_dataset_name, dataset_test in test_dataset_list.items():
             sampler_test = torch.utils.data.DistributedSampler(
                 dataset_test,
@@ -105,7 +106,8 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
             )
             test_sampler[test_dataset_name] = sampler_test
         print("Sampler_train = %s" % str(sampler_train))
-        print("Sampler_test = %s" % str(sampler_test))
+        if sampler_test:
+            print("Sampler_test = %s" % str(sampler_test))
     else:
         sampler_train = torch.utils.data.RandomSampler(train_dataset)
         for test_dataset_name, dataset_test in test_dataset_list.items():
@@ -152,7 +154,7 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
     model.to(device)
 
     model_without_ddp = model
-    print("Model = %s" % str(model_without_ddp))
+    # print("Model = %s" % str(model_without_ddp))
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
 
@@ -216,10 +218,10 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
                     evaluator_list=evaluator_list,
                     device=device,
                     epoch=epoch,
-                    name=test_dataset_name,
+                    # name=test_dataset_name,
                     log_writer=log_writer,
                     args=args,
-                    is_test=False,
+                    # is_test=False,
                 )
                 one_metric_value = {}
                 # Read the metric value from the test_stats dict

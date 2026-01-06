@@ -1,0 +1,4 @@
+/SCD
+data/
+**__pycache__**
+.envrc
