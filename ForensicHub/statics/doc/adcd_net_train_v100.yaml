@@ -1,5 +1,4 @@
-# ADCD-Net Training Configuration - Optimized for Single V100 GPU
-# Full model with memory optimizations (no model changes)
+# ADCD-Net Training Configuration - Single V100 GPU
 # Reference: https://github.com/KAHIMWONG/ADCD-Net (ICCV 2025)
 
 # DDP - Single GPU
@@ -13,7 +12,7 @@ log_dir: "./log/doc_adcd_net_v100_train"
 if_predict_label: false
 if_predict_mask: true
 
-# Model - FULL configuration (no lite_mode)
+# Model
 model:
   name: ADCDNet
   init_config:
@@ -24,12 +23,7 @@ model:
     focal_in_dim: [192, 96, 96, 96]
     focal_out_dim: 32
     pp_scale_n: 4
-    # === MEMORY OPTIMIZATION (no model changes) ===
-    use_checkpoint: true               # Gradient checkpointing - same results, less memory
-    lite_mode: false                   # Keep full model
-    disable_reconstruction: false      # Keep reconstruction
-    disable_focal_loss: false          # Keep focal loss
-    # === Loss weights (original) ===
+    use_checkpoint: true               # Gradient checkpointing to save memory
     ce_weight: 3.0
     rec_weight: 1.0
     focal_weight: 0.2
@@ -82,11 +76,11 @@ evaluator:
     init_config:
       threshold: 0.5
 
-# === MEMORY-OPTIMIZED TRAINING (same effective training) ===
-batch_size: 1                          # Small batch for V100
+# Training settings
+batch_size: 1
 test_batch_size: 1
 epochs: 100
-accum_iter: 10                         # Gradient accumulation (effective batch = 10)
+accum_iter: 10                         # Gradient accumulation
 record_epoch: 0
 
 # Test related
@@ -98,7 +92,7 @@ log_per_epoch_count: 20
 
 # DDP & AMP settings
 find_unused_parameters: true
-use_amp: true                          # Mixed precision training
+use_amp: true                          # Mixed precision
 
 # Optimizer parameters
 opt: 'AdamW'
@@ -116,7 +110,7 @@ start_epoch: 0
 num_workers: 4
 pin_mem: true
 
-# Distributed training parameters (single GPU)
+# Distributed training parameters
 world_size: 1
 local_rank: -1
 dist_on_itp: false

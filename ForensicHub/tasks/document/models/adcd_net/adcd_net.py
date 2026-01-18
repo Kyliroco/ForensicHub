@@ -13,7 +13,7 @@ This model combines:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from ForensicHub.registry import register_model
 from ForensicHub.core.base_model import BaseModel
@@ -58,13 +58,7 @@ class ADCDNet(BaseModel):
             rec_weight: float = 1.0,
             focal_weight: float = 0.2,
             norm_weight: float = 0.1,
-            # Memory optimization options
             use_checkpoint: bool = False,
-            lite_mode: bool = False,
-            disable_reconstruction: bool = False,
-            disable_focal_loss: bool = False,
-            restormer_dim: int = 48,
-            restormer_blocks: list = None,
             **kwargs
     ):
         """
@@ -82,49 +76,24 @@ class ADCDNet(BaseModel):
             focal_weight: Weight for focal contrastive loss
             norm_weight: Weight for normalization loss
             use_checkpoint: Use gradient checkpointing to save memory
-            lite_mode: Use lighter model configuration
-            disable_reconstruction: Disable reconstruction branch to save memory
-            disable_focal_loss: Disable focal contrastive loss to save memory
-            restormer_dim: Base dimension for Restormer (default 48, use 32 for lite)
-            restormer_blocks: Number of blocks per level (default [4,6,6,8], use [2,3,3,4] for lite)
         """
         super().__init__()
 
         self.cls_n = cls_n
         self.docres_ckpt_path = docres_ckpt_path
-        self.use_checkpoint = use_checkpoint
-        self.disable_reconstruction = disable_reconstruction
-        self.disable_focal_loss = disable_focal_loss
-
-        # Apply lite mode defaults
-        if lite_mode:
-            restormer_dim = 32
-            restormer_blocks = [2, 3, 3, 4]
-            loc_out_dim = 64
-            dct_feat_dim = 128
-            focal_in_dim = [128, 64, 64, 64]
-
-        if restormer_blocks is None:
-            restormer_blocks = [4, 6, 6, 8]
 
         # RGB encoder + localization branch (Restormer-based)
         self.restormer_loc = get_restormer(
             model_name='full_model',
             out_channels=loc_out_dim,
-            dim=restormer_dim,
-            num_blocks=restormer_blocks,
             use_checkpoint=use_checkpoint
         )
 
-        # Reconstruction branch (decoder only) - optional for memory saving
-        if not disable_reconstruction:
-            self.restormer_rec = get_restormer(
-                model_name='decoder_only',
-                out_channels=rec_out_dim,
-                dim=restormer_dim
-            )
-        else:
-            self.restormer_rec = None
+        # Reconstruction branch (decoder only)
+        self.restormer_rec = get_restormer(
+            model_name='decoder_only',
+            out_channels=rec_out_dim
+        )
 
         # DCT encoder (Feature Pyramid Handler)
         self.dct_encoder = FPH(dct_feat_dim=dct_feat_dim)
@@ -304,23 +273,17 @@ class ADCDNet(BaseModel):
         focal_losses = None
 
         if is_train:
-            # Reconstruction with shuffled features (optional)
-            if self.restormer_rec is not None and not self.disable_reconstruction:
-                shuffle_rec_img = self.restormer_rec(cnt_feats, frg_feats, is_shuffle=True)
-                if dct is not None:
-                    norm_dct = (dct.float() / 20.0).unsqueeze(1)
-                    rec_items = (shuffle_rec_img, norm_dct)
+            # Reconstruction with shuffled features
+            shuffle_rec_img = self.restormer_rec(cnt_feats, frg_feats, is_shuffle=True)
+            if dct is not None:
+                norm_dct = (dct.float() / 20.0).unsqueeze(1)
+                rec_items = (shuffle_rec_img, norm_dct)
 
-            # Focal contrastive losses (optional - expensive in memory)
-            if not self.disable_focal_loss:
-                focal_losses = tuple([
-                    supcon_parallel(self.focal_proj[i](pp_feats[i]), mask)
-                    for i in range(len(pp_feats))
-                ])
-
-            # Free intermediate features to save memory
-            del cnt_feats, frg_feats, pp_feats
-            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            # Focal contrastive losses
+            focal_losses = tuple([
+                supcon_parallel(self.focal_proj[i](pp_feats[i]), mask)
+                for i in range(len(pp_feats))
+            ])
 
         # Compute loss
         total_loss, loss_dict = self.loss_fn(
