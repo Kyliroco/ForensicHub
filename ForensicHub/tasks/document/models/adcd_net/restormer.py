@@ -9,6 +9,7 @@ Modified for document tampering detection with DCT feature integration.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 import numbers
 
 
@@ -240,10 +241,12 @@ class Restormer(nn.Module):
             ffn_expansion_factor=2.66,
             bias=False,
             LayerNorm_type='WithBias',
-            dct_dims=[128, 64, 48, 48]  # DCT feature dimensions at each scale
+            dct_dims=[128, 64, 48, 48],  # DCT feature dimensions at each scale
+            use_checkpoint=False  # Gradient checkpointing for memory saving
     ):
         super(Restormer, self).__init__()
 
+        self.use_checkpoint = use_checkpoint
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
 
         # Encoder
@@ -316,6 +319,12 @@ class Restormer(nn.Module):
         self.cnt_head = nn.Conv2d(int(dim * 2 ** 1), out_channels, 3, 1, 1)
         self.frg_head = nn.Conv2d(int(dim * 2 ** 1), out_channels, 3, 1, 1)
 
+    def _run_block(self, block, x):
+        """Run a block with optional gradient checkpointing."""
+        if self.use_checkpoint and self.training:
+            return checkpoint(block, x, use_reentrant=False)
+        return block(x)
+
     def forward(self, img, ms_dct_feats=None, dct_align_score=None):
         """
         Args:
@@ -331,42 +340,42 @@ class Restormer(nn.Module):
         """
         inp_enc_level1 = self.patch_embed(img)
 
-        # Encoder with DCT fusion
-        out_enc_level1 = self.encoder_level1(inp_enc_level1)
+        # Encoder with DCT fusion (with optional checkpointing)
+        out_enc_level1 = self._run_block(self.encoder_level1, inp_enc_level1)
         if ms_dct_feats is not None and dct_align_score is not None:
             out_enc_level1 = self.dct_fusion1(out_enc_level1, ms_dct_feats[0], dct_align_score)
 
         inp_enc_level2 = self.down1_2(out_enc_level1)
-        out_enc_level2 = self.encoder_level2(inp_enc_level2)
+        out_enc_level2 = self._run_block(self.encoder_level2, inp_enc_level2)
         if ms_dct_feats is not None and dct_align_score is not None:
             out_enc_level2 = self.dct_fusion2(out_enc_level2, ms_dct_feats[1], dct_align_score)
 
         inp_enc_level3 = self.down2_3(out_enc_level2)
-        out_enc_level3 = self.encoder_level3(inp_enc_level3)
+        out_enc_level3 = self._run_block(self.encoder_level3, inp_enc_level3)
         if ms_dct_feats is not None and dct_align_score is not None:
             out_enc_level3 = self.dct_fusion3(out_enc_level3, ms_dct_feats[2], dct_align_score)
 
         inp_enc_level4 = self.down3_4(out_enc_level3)
-        latent = self.latent(inp_enc_level4)
+        latent = self._run_block(self.latent, inp_enc_level4)
         if ms_dct_feats is not None and dct_align_score is not None:
             latent = self.dct_fusion4(latent, ms_dct_feats[3], dct_align_score)
 
-        # Decoder
+        # Decoder (with optional checkpointing)
         inp_dec_level3 = self.up4_3(latent)
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3], 1)
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)
-        out_dec_level3 = self.decoder_level3(inp_dec_level3)
+        out_dec_level3 = self._run_block(self.decoder_level3, inp_dec_level3)
 
         inp_dec_level2 = self.up3_2(out_dec_level3)
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2], 1)
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
-        out_dec_level2 = self.decoder_level2(inp_dec_level2)
+        out_dec_level2 = self._run_block(self.decoder_level2, inp_dec_level2)
 
         inp_dec_level1 = self.up2_1(out_dec_level2)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 1)
-        out_dec_level1 = self.decoder_level1(inp_dec_level1)
+        out_dec_level1 = self._run_block(self.decoder_level1, inp_dec_level1)
 
-        out_dec_level1 = self.refinement(out_dec_level1)
+        out_dec_level1 = self._run_block(self.refinement, out_dec_level1)
 
         feat = self.output(out_dec_level1)
 
