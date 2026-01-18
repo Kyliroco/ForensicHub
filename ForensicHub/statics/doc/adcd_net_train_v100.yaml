@@ -1,5 +1,5 @@
 # ADCD-Net Training Configuration - Optimized for Single V100 GPU
-# Memory-optimized version with gradient checkpointing and lite mode
+# Full model with memory optimizations (no model changes)
 # Reference: https://github.com/KAHIMWONG/ADCD-Net (ICCV 2025)
 
 # DDP - Single GPU
@@ -13,25 +13,25 @@ log_dir: "./log/doc_adcd_net_v100_train"
 if_predict_label: false
 if_predict_mask: true
 
-# Model - Memory optimized configuration
+# Model - FULL configuration (no lite_mode)
 model:
   name: ADCDNet
   init_config:
     cls_n: 2
-    # === MEMORY OPTIMIZATION OPTIONS ===
-    lite_mode: true                    # Use smaller model (dim=32, fewer blocks)
-    use_checkpoint: true               # Gradient checkpointing (saves ~40% memory)
-    disable_reconstruction: true       # Disable reconstruction branch (saves ~20% memory)
-    disable_focal_loss: false          # Keep focal loss but with reduced samples
-    # === Override lite_mode defaults if needed ===
-    # restormer_dim: 32                # Base dimension (32 for lite, 48 for full)
-    # restormer_blocks: [2, 3, 3, 4]   # Blocks per level (lite mode)
-    # loc_out_dim: 64
-    # dct_feat_dim: 128
-    # focal_in_dim: [128, 64, 64, 64]
-    # === Loss weights ===
+    loc_out_dim: 96
+    rec_out_dim: 4
+    dct_feat_dim: 256
+    focal_in_dim: [192, 96, 96, 96]
+    focal_out_dim: 32
+    pp_scale_n: 4
+    # === MEMORY OPTIMIZATION (no model changes) ===
+    use_checkpoint: true               # Gradient checkpointing - same results, less memory
+    lite_mode: false                   # Keep full model
+    disable_reconstruction: false      # Keep reconstruction
+    disable_focal_loss: false          # Keep focal loss
+    # === Loss weights (original) ===
     ce_weight: 3.0
-    rec_weight: 0.0                    # Disabled when disable_reconstruction=true
+    rec_weight: 1.0
     focal_weight: 0.2
     norm_weight: 0.1
     docres_ckpt_path: null
@@ -54,6 +54,18 @@ test_dataset:
       path: /mnt/data1/public_datasets/Doc/DocTamperV1/DocTamperV1-TestingSet
       dct_path: /mnt/data1/public_datasets/Doc/DataLoaders/other_files/qt_table_ori.pk
       train: false
+  - name: DocDataset
+    dataset_name: DocTamperData_FCD
+    init_config:
+      path: /mnt/data1/public_datasets/Doc/DocTamperV1/DocTamperV1-FCD
+      dct_path: /mnt/data1/public_datasets/Doc/DataLoaders/other_files/qt_table_ori.pk
+      train: false
+  - name: DocDataset
+    dataset_name: DocTamperData_SCD
+    init_config:
+      path: /mnt/data1/public_datasets/Doc/DocTamperV1/DocTamperV1-SCD
+      dct_path: /mnt/data1/public_datasets/Doc/DataLoaders/other_files/qt_table_ori.pk
+      train: false
 
 # Transform
 transform:
@@ -70,38 +82,38 @@ evaluator:
     init_config:
       threshold: 0.5
 
-# === MEMORY-OPTIMIZED TRAINING SETTINGS ===
-batch_size: 2                          # Small batch size for V100 16GB
-test_batch_size: 2
+# === MEMORY-OPTIMIZED TRAINING (same effective training) ===
+batch_size: 1                          # Small batch for V100
+test_batch_size: 1
 epochs: 100
-accum_iter: 8                          # Gradient accumulation (effective batch = 16)
+accum_iter: 10                         # Gradient accumulation (effective batch = 10)
 record_epoch: 0
 
 # Test related
 no_model_eval: false
-test_period: 5                         # Test less frequently to save time
+test_period: 1
 
 # Logging
-log_per_epoch_count: 10
+log_per_epoch_count: 20
 
 # DDP & AMP settings
 find_unused_parameters: true
-use_amp: true                          # Mixed precision (saves ~50% memory)
+use_amp: true                          # Mixed precision training
 
 # Optimizer parameters
 opt: 'AdamW'
 weight_decay: 1e-4
-lr: 1e-4                               # Lower LR for smaller effective batch
+lr: 3e-4
 blr: 0.001
-min_lr: 1e-6
-warmup_epochs: 3
+min_lr: 1e-5
+warmup_epochs: 5
 
 # Device and training control
 device: "cuda"
 seed: 42
 resume: ""
 start_epoch: 0
-num_workers: 4                         # Reduced workers for single GPU
+num_workers: 4
 pin_mem: true
 
 # Distributed training parameters (single GPU)

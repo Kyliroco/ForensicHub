@@ -21,16 +21,15 @@ from torch.nn.utils.rnn import pad_sequence
 # Supervised Contrastive Loss
 # ========================
 
-def supcon_parallel(f, y, t=0.1, sample_n=128, min_n=3):
+def supcon_parallel(f, y, t=0.1, sample_n=512, min_n=3):
     """
     Supervised contrastive loss computed in parallel across batch.
-    Memory-optimized version with reduced sample count.
 
     Args:
         f: Feature maps (B, C, H, W)
         y: Segmentation masks (B, 1, H, W) or (B, H, W)
         t: Temperature parameter
-        sample_n: Number of samples per class (reduced from 512 to 128 for memory)
+        sample_n: Number of samples per class
         min_n: Minimum samples required per class
 
     Returns:
@@ -44,11 +43,6 @@ def supcon_parallel(f, y, t=0.1, sample_n=128, min_n=3):
     y = F.interpolate(y.float().unsqueeze(1), size=(h, w), mode='nearest').long().squeeze(1)
 
     l = h * w
-
-    # Use half precision for memory efficiency if available
-    if f.dtype == torch.float32 and f.device.type == 'cuda':
-        f = f.half()
-
     f = f.permute(0, 2, 3, 1).reshape(b, l, c)
     y = y.reshape(b, l)
 
