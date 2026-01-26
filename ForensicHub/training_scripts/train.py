@@ -7,6 +7,7 @@ import numpy as np
 from pathlib import Path
 import timm.optim.optim_factory as optim_factory
 from torch.utils.tensorboard import SummaryWriter
+from colorama import Fore, Style
 
 import ForensicHub.training_scripts.utils.misc as misc
 from ForensicHub.registry import DATASETS, MODELS, POSTFUNCS, TRANSFORMS, EVALUATORS, build_from_registry
@@ -14,6 +15,20 @@ from ForensicHub.common.evaluation import PixelF1, ImageF1
 from IMDLBenCo.training_scripts.tester import test_one_epoch
 from IMDLBenCo.training_scripts.trainer import train_one_epoch
 from ForensicHub.common.utils.yaml import load_yaml_config, split_config, add_attr
+
+
+def check_stop_signal(log_dir):
+    """
+    Check if a STOP file exists in the log directory.
+
+    To stop training gracefully at the end of the current epoch:
+        touch <log_dir>/STOP
+
+    Returns:
+        True if STOP file exists, False otherwise
+    """
+    stop_file = os.path.join(log_dir, 'STOP')
+    return os.path.exists(stop_file)
 
 
 def get_args_parser():
@@ -183,6 +198,8 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
     print(f"Start training for {args.epochs} epochs")
+    print(Fore.CYAN + f"  Tip: To stop training gracefully at the end of an epoch, run:" + Style.RESET_ALL)
+    print(Fore.CYAN + f"       touch {args.log_dir}/STOP" + Style.RESET_ALL)
     start_time = time.time()
     best_evaluate_metric_value = 0
     for epoch in range(args.start_epoch, args.epochs):
@@ -263,6 +280,24 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
+
+        # Check for STOP signal at the end of each epoch
+        if check_stop_signal(args.log_dir):
+            print(Fore.YELLOW + f"\n{'='*60}" + Style.RESET_ALL)
+            print(Fore.YELLOW + "  STOP signal detected! Saving model and stopping training..." + Style.RESET_ALL)
+            print(Fore.YELLOW + f"{'='*60}\n" + Style.RESET_ALL)
+            # Save the model before stopping
+            misc.save_model(
+                args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                loss_scaler=loss_scaler, epoch=epoch)
+            print(Fore.GREEN + f"  Model saved at epoch {epoch}." + Style.RESET_ALL)
+            print(Fore.GREEN + f"  To resume training, use: start_epoch: {epoch + 1}" + Style.RESET_ALL)
+            # Remove the STOP file so next run doesn't immediately stop
+            stop_file = os.path.join(args.log_dir, 'STOP')
+            if os.path.exists(stop_file):
+                os.remove(stop_file)
+                print(Fore.GREEN + f"  STOP file removed." + Style.RESET_ALL)
+            break
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
