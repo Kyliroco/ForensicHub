@@ -5,7 +5,7 @@ import argparse
 import datetime
 import numpy as np
 from pathlib import Path
-import timm.optim.optim_factory as optim_factory
+import timm.optim as optim_factory
 from torch.utils.tensorboard import SummaryWriter
 from colorama import Fore, Style
 
@@ -163,7 +163,7 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
 
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-
+    raise ValueError()
     model.to(device)
 
     model_without_ddp = model

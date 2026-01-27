@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from functools import partial
 from .extractors.fph import FPH
 
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 
 from ForensicHub.core.base_model import BaseModel
