@@ -6,7 +6,7 @@ einops
 ftfy
 grad_cam
 imageio
-IMDLBenCo
+IMDLBenCo13
 imutils
 jpegio
 kmeans_pytorch
