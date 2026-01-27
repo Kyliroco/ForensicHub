@@ -6,7 +6,7 @@ einops
 ftfy
 grad_cam
 imageio
-imdlbenco13==0.2.00
+IMDLBenCo
 imutils
 jpegio
 kmeans_pytorch
@@ -15,7 +15,6 @@ matplotlib
 numpy
 opencv_python
 opencv_python_headless
-packaging
 Pillow
 pytorch_wavelets
 regex
@@ -25,11 +24,10 @@ scikit_learn
 segmentation_models_pytorch
 setuptools
 six
+tensorflow
 timm
 torch
 torchvision
 tqdm
 ttach
 yacs
-transformers
-flash-attn
