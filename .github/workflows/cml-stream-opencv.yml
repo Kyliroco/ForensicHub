@@ -1,0 +1,87 @@
+name: CML S3 Streaming Stats (OpenCV + DVC)
+
+on:
+  # pull_request:
+    # paths-ignore:
+    #   - 'dvc.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+env:
+  NODE_EXTRA_CA_CERTS: /etc/ssl/cert.pem
+  REQUESTS_CA_BUNDLE: /etc/ssl/cert.pem
+  SSL_CERT_FILE: /etc/ssl/cert.pem
+  PIP_CERT: /etc/ssl/cert.pem
+  AWS_CA_BUNDLE: /etc/ssl/cert.pem
+  PIP_TRUSTED_HOST: nexus.maif
+jobs:
+  stream-stats:
+    # runs-on: [self-hosted, slhdg003] 
+    runs-on: [self-hosted,macOS] 
+    steps:
+      
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Test
+        run: |
+          git tag
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install deps
+        run: |
+          pip install -U pip
+          pip install -r requirements.txt
+
+      - uses: iterative/setup-cml@v3
+      - name: Warm run-cache if any (first run-safe)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          AWS_S3_ADDRESSING_STYLE: path
+          AWS_ENDPOINT_URL: ${{ secrets.MINIO_ENDPOINT }}
+        run: |
+          # OK même s'il n'y en a pas encore de dvc.lock car premier lancement
+          dvc fetch --run-cache --all-commits -r s3 || true
+        
+      - name: Reproduce with DVC
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_KEY }}
+          AWS_S3_ADDRESSING_STYLE: path
+          AWS_ENDPOINT_URL: ${{ secrets.MINIO_ENDPOINT }}
+        run: |
+          dvc repro
+          git config user.name "ci-cd-bot"
+          git config user.email "ci-cd-bot@maif.fr"
+          if git diff --cached --quiet; then
+            echo "No changes. Skipping commit/push on git."
+            dvc push --run-cache 
+            exit 0
+          fi
+          git commit -m "CI: update dvc.lock [skip ci]"
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
+          dvc push --run-cache 
+
+          
+      # DVC formate le rapport en Markdown
+      - name: Build Markdown report
+        run: dvc metrics show --md > report.md
+
+      # CML poste le rapport dans la PR
+      - name: Comment PR (CML)
+        if: github.event_name == 'pull_request'
+        run: cml comment create --target=pr report.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cleanup job directory
+        if: always()
+        run: |
+          echo "Cleaning up job directory..."
+          ls -al .
+          find . -mindepth 1 -delete
+          ls -al .
