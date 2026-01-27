@@ -1,4 +1,4 @@
-<p align="center" width="100%">
+<p align="center" width="100%">  
 <img src="images/logo.jpg" alt="OSQ" style="width: 28%; min-width: 150px; display: block; margin: auto;">
 </p>
 
