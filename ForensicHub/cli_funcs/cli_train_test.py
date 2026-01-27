@@ -1,14 +1,50 @@
 
 import os
 import sys
+import re
 import yaml
 import subprocess
 from colorama import init, Fore, Style
 from IMDLBenCo.utils.paths import BencoPath
-from .copy import copy_files, copy_file 
+from .copy import copy_files, copy_file
 
 from ForensicHub.training_scripts import train as train_script
 from ForensicHub.training_scripts import test as test_script
+
+
+def get_unique_log_dir(base_dir):
+    """
+    Generate a unique log directory path by appending _1, _2, etc. if the directory exists.
+
+    Args:
+        base_dir: The original log directory path from config
+
+    Returns:
+        A unique directory path that doesn't exist yet
+    """
+    if not os.path.exists(base_dir):
+        return base_dir
+
+    # Directory exists, find the next available suffix
+    # First, check if base_dir already has a suffix like _1, _2, etc.
+    match = re.match(r'^(.+)_(\d+)$', base_dir)
+    if match:
+        # Already has a suffix, extract base and start from next number
+        base_path = match.group(1)
+        start_num = int(match.group(2)) + 1
+    else:
+        # No suffix yet, start from _1
+        base_path = base_dir
+        start_num = 1
+
+    # Find the next available number
+    counter = start_num
+    while True:
+        new_dir = f"{base_path}_{counter}"
+        if not os.path.exists(new_dir):
+            return new_dir
+        counter += 1
+
 
 def check_config_dict(config):
     """
@@ -58,7 +94,7 @@ def excute_script(yaml_path, script_path):
     env = os.environ.copy()
     env['CUDA_VISIBLE_DEVICES'] = config['gpus']
     gpus = config['gpus']
-    base_dir = config['log_dir']
+    original_log_dir = config['log_dir']
     flag = config['flag']
 
     """
@@ -68,7 +104,23 @@ def excute_script(yaml_path, script_path):
     if flag not in ["train", "test"]:
         print(Fore.RED + "  The flag in config file should be 'train' or 'test'" + Style.RESET_ALL)
         return
-        
+
+    # Get unique log_dir with increment suffix if it already exists
+    base_dir = get_unique_log_dir(original_log_dir)
+
+    # If log_dir was modified, update the config and YAML file
+    if base_dir != original_log_dir:
+        print(Fore.YELLOW + f"  Log directory '{original_log_dir}' already exists." + Style.RESET_ALL)
+        print(Fore.YELLOW + f"  Using new log directory: '{base_dir}'" + Style.RESET_ALL)
+        config['log_dir'] = base_dir
+        # Update the YAML file with the new log_dir
+        try:
+            with open(yaml_path, 'w') as file:
+                yaml.safe_dump(config, file, default_flow_style=False, allow_unicode=True)
+        except Exception as e:
+            print(Fore.RED + f"  Error updating YAML file with new log_dir: {e}" + Style.RESET_ALL)
+            return
+
     # mkdir in base_dir
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)

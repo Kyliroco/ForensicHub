@@ -1,0 +1,117 @@
+# ADCD-Net Training Configuration - Single V100 GPU
+# Reference: https://github.com/KAHIMWONG/ADCD-Net (ICCV 2025)
+
+# DDP - Single GPU
+gpus: "0"
+flag: train
+
+# Log
+log_dir: "./log/doc_adcd_net_v100_train"
+
+# Task
+if_predict_label: false
+if_predict_mask: true
+
+# Model
+model:
+  name: ADCDNet
+  init_config:
+    cls_n: 2
+    loc_out_dim: 96
+    rec_out_dim: 4
+    dct_feat_dim: 256
+    focal_in_dim: [192, 96, 96, 96]
+    focal_out_dim: 32
+    pp_scale_n: 4
+    use_checkpoint: true               # Gradient checkpointing to save memory
+    ce_weight: 3.0
+    rec_weight: 1.0
+    focal_weight: 0.2
+    norm_weight: 0.1
+    docres_ckpt_path: null
+
+# Train dataset
+train_dataset:
+  name: DocDataset
+  dataset_name: DocTamperData_train
+  init_config:
+    path: /mnt/data1/public_datasets/Doc/DocTamperV1/DocTamperV1-TrainingSet
+    dct_path: /mnt/data1/public_datasets/Doc/DataLoaders/other_files/qt_table_ori.pk
+    crop_size: 256
+    train: true
+
+# Test dataset
+test_dataset:
+  - name: DocDataset
+    dataset_name: DocTamperData_test
+    init_config:
+      path: /mnt/data1/public_datasets/Doc/DocTamperV1/DocTamperV1-TestingSet
+      dct_path: /mnt/data1/public_datasets/Doc/DataLoaders/other_files/qt_table_ori.pk
+      train: false
+  - name: DocDataset
+    dataset_name: DocTamperData_FCD
+    init_config:
+      path: /mnt/data1/public_datasets/Doc/DocTamperV1/DocTamperV1-FCD
+      dct_path: /mnt/data1/public_datasets/Doc/DataLoaders/other_files/qt_table_ori.pk
+      train: false
+  - name: DocDataset
+    dataset_name: DocTamperData_SCD
+    init_config:
+      path: /mnt/data1/public_datasets/Doc/DocTamperV1/DocTamperV1-SCD
+      dct_path: /mnt/data1/public_datasets/Doc/DataLoaders/other_files/qt_table_ori.pk
+      train: false
+
+# Transform
+transform:
+  name: DocTransform
+  init_config:
+    norm_type: image_net
+
+# Post-processing function for DCT extraction
+post_func_name: adcd_net
+
+# Evaluators
+evaluator:
+  - name: PixelF1
+    init_config:
+      threshold: 0.5
+
+# Training settings
+batch_size: 1
+test_batch_size: 1
+epochs: 100
+accum_iter: 10                         # Gradient accumulation
+record_epoch: 0
+
+# Test related
+no_model_eval: false
+test_period: 1
+
+# Logging
+log_per_epoch_count: 20
+
+# DDP & AMP settings
+find_unused_parameters: true
+use_amp: true                          # Mixed precision
+
+# Optimizer parameters
+opt: 'AdamW'
+weight_decay: 1e-4
+lr: 3e-4
+blr: 0.001
+min_lr: 1e-5
+warmup_epochs: 5
+
+# Device and training control
+device: "cuda"
+seed: 42
+resume: ""
+start_epoch: 0
+num_workers: 4
+pin_mem: true
+
+# Distributed training parameters
+world_size: 1
+local_rank: -1
+dist_on_itp: false
+dist_url: "env://"
