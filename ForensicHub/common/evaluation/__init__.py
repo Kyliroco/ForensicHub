@@ -1,6 +1,5 @@
 import IMDLBenCo.evaluation
-from IMDLBenCo.evaluation import cal_confusion_matrix ,cal_F1,ImageF1,PixelF1,ImageAUC,PixelAUC,PixelIOU,ImageAccuracy,PixelAccuracy,grad_camera_visualize
-from IMDLBenCo.evaluation import genertate_region_mask as generate_region_mask
+from IMDLBenCo.evaluation import *
 
 from ForensicHub import EVALUATORS
 from .AP import ImageAP
