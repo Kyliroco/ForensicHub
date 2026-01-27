@@ -266,9 +266,30 @@ class NativeScalerWithGradNormCount:
 
     def __init__(self):
         self._scaler = torch.cuda.amp.GradScaler()
+        self._nan_skip_count = 0
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
-        self._scaler.scale(loss).backward(create_graph=create_graph)
+        # Check if loss is NaN or Inf before backward
+        if not torch.isfinite(loss).all():
+            print(f"[Warning] Loss is NaN/Inf (value={loss.item() if loss.numel() == 1 else 'tensor'}), skipping batch")
+            self._nan_skip_count += 1
+            optimizer.zero_grad()
+            return torch.tensor(0.0)
+
+        # Try backward pass with NaN detection
+        try:
+            self._scaler.scale(loss).backward(create_graph=create_graph)
+        except RuntimeError as e:
+            if "nan" in str(e).lower() or "inf" in str(e).lower():
+                print(f"[Warning] NaN/Inf detected during backward pass, skipping batch: {e}")
+                self._nan_skip_count += 1
+                optimizer.zero_grad()
+                # Update scaler to reduce scale factor
+                self._scaler.update()
+                return torch.tensor(0.0)
+            else:
+                raise  # Re-raise if it's a different error
+
         if update_grad:
             if clip_grad is not None:
                 assert parameters is not None
@@ -277,6 +298,15 @@ class NativeScalerWithGradNormCount:
             else:
                 self._scaler.unscale_(optimizer)
                 norm = get_grad_norm_(parameters)
+
+            # Check for NaN/Inf in gradients after unscale
+            if not torch.isfinite(norm):
+                print(f"[Warning] NaN/Inf gradients detected after unscale (norm={norm}), skipping optimizer step")
+                self._nan_skip_count += 1
+                optimizer.zero_grad()
+                self._scaler.update()
+                return torch.tensor(0.0)
+
             self._scaler.step(optimizer)
             self._scaler.update()
         else:
@@ -288,6 +318,11 @@ class NativeScalerWithGradNormCount:
 
     def load_state_dict(self, state_dict):
         self._scaler.load_state_dict(state_dict)
+
+    @property
+    def nan_skip_count(self):
+        """Returns the number of batches skipped due to NaN/Inf."""
+        return self._nan_skip_count
 
 
 def get_grad_norm_(parameters, norm_type: float = 2.0) -> torch.Tensor:
@@ -331,7 +366,7 @@ def load_model(args, model_without_ddp, optimizer, loss_scaler):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.resume, map_location='cpu', check_hash=True)
         else:
-            checkpoint = torch.load(args.resume, map_location='cpu')
+            checkpoint = torch.load(args.resume, map_location='cpu',weights_only=False)
         model_without_ddp.load_state_dict(checkpoint['model'])
         print("Resume checkpoint %s" % args.resume)
         if 'optimizer' in checkpoint and 'epoch' in checkpoint and not (hasattr(args, 'eval') and args.eval):
