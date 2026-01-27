@@ -197,6 +197,17 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
+    # Warn if start_epoch > 0 but no resume checkpoint is provided
+    if args.start_epoch > 0 and not args.resume:
+        print(Fore.YELLOW + f"\n{'='*60}" + Style.RESET_ALL)
+        print(Fore.YELLOW + "  WARNING: start_epoch > 0 but no 'resume' checkpoint provided!" + Style.RESET_ALL)
+        print(Fore.YELLOW + "  The model and optimizer will start from scratch, but the LR" + Style.RESET_ALL)
+        print(Fore.YELLOW + f"  scheduler will use epoch {args.start_epoch}. This is likely not" + Style.RESET_ALL)
+        print(Fore.YELLOW + "  what you want. To properly resume training, set:" + Style.RESET_ALL)
+        print(Fore.YELLOW + f"       resume: <path_to_checkpoint.pth>" + Style.RESET_ALL)
+        print(Fore.YELLOW + f"  (start_epoch will be set automatically from the checkpoint)" + Style.RESET_ALL)
+        print(Fore.YELLOW + f"{'='*60}\n" + Style.RESET_ALL)
+
     print(f"Start training for {args.epochs} epochs")
     print(Fore.CYAN + f"  Tip: To stop training gracefully at the end of an epoch, run:" + Style.RESET_ALL)
     print(Fore.CYAN + f"       touch {args.log_dir}/STOP" + Style.RESET_ALL)
@@ -291,7 +302,9 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)
             print(Fore.GREEN + f"  Model saved at epoch {epoch}." + Style.RESET_ALL)
-            print(Fore.GREEN + f"  To resume training, use: start_epoch: {epoch + 1}" + Style.RESET_ALL)
+            checkpoint_path = os.path.join(args.output_dir, f'checkpoint-{epoch}.pth')
+            print(Fore.GREEN + f"  To resume training, set in your YAML:" + Style.RESET_ALL)
+            print(Fore.GREEN + f"       resume: {checkpoint_path}" + Style.RESET_ALL)
             # Remove the STOP file so next run doesn't immediately stop
             stop_file = os.path.join(args.log_dir, 'STOP')
             if os.path.exists(stop_file):
