@@ -66,6 +66,7 @@ dependencies = [
     "scikit_learn",
     "segmentation_models_pytorch",
     "six",
+    "tensorflow",
     "timm",
     "torch",
     "torchvision",
