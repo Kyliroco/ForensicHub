@@ -7,6 +7,7 @@ import numpy as np
 from pathlib import Path
 import timm.optim.optim_factory as optim_factory
 from torch.utils.tensorboard import SummaryWriter
+from colorama import Fore, Style
 
 import ForensicHub.training_scripts.utils.misc as misc
 from ForensicHub.registry import DATASETS, MODELS, POSTFUNCS, TRANSFORMS, EVALUATORS, build_from_registry
@@ -14,6 +15,20 @@ from ForensicHub.common.evaluation import PixelF1, ImageF1
 from IMDLBenCo.training_scripts.tester import test_one_epoch
 from IMDLBenCo.training_scripts.trainer import train_one_epoch
 from ForensicHub.common.utils.yaml import load_yaml_config, split_config, add_attr
+
+
+def check_stop_signal(log_dir):
+    """
+    Check if a STOP file exists in the log directory.
+
+    To stop training gracefully at the end of the current epoch:
+        touch <log_dir>/STOP
+
+    Returns:
+        True if STOP file exists, False otherwise
+    """
+    stop_file = os.path.join(log_dir, 'STOP')
+    return os.path.exists(stop_file)
 
 
 def get_args_parser():
@@ -95,7 +110,6 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
         sampler_train = torch.utils.data.DistributedSampler(
             train_dataset, num_replicas=num_tasks, rank=global_rank, shuffle=True
         )
-        sampler_test = None
         for test_dataset_name, dataset_test in test_dataset_list.items():
             sampler_test = torch.utils.data.DistributedSampler(
                 dataset_test,
@@ -106,8 +120,7 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
             )
             test_sampler[test_dataset_name] = sampler_test
         print("Sampler_train = %s" % str(sampler_train))
-        if sampler_test:
-            print("Sampler_test = %s" % str(sampler_test))
+        print("Sampler_test = %s" % str(sampler_test))
     else:
         sampler_train = torch.utils.data.RandomSampler(train_dataset)
         for test_dataset_name, dataset_test in test_dataset_list.items():
@@ -154,7 +167,7 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
     model.to(device)
 
     model_without_ddp = model
-    # print("Model = %s" % str(model_without_ddp))
+    print("Model = %s" % str(model_without_ddp))
 
     eff_batch_size = args.batch_size * args.accum_iter * misc.get_world_size()
 
@@ -184,7 +197,20 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
+    # Warn if start_epoch > 0 but no resume checkpoint is provided
+    if args.start_epoch > 0 and not args.resume:
+        print(Fore.YELLOW + f"\n{'='*60}" + Style.RESET_ALL)
+        print(Fore.YELLOW + "  WARNING: start_epoch > 0 but no 'resume' checkpoint provided!" + Style.RESET_ALL)
+        print(Fore.YELLOW + "  The model and optimizer will start from scratch, but the LR" + Style.RESET_ALL)
+        print(Fore.YELLOW + f"  scheduler will use epoch {args.start_epoch}. This is likely not" + Style.RESET_ALL)
+        print(Fore.YELLOW + "  what you want. To properly resume training, set:" + Style.RESET_ALL)
+        print(Fore.YELLOW + f"       resume: <path_to_checkpoint.pth>" + Style.RESET_ALL)
+        print(Fore.YELLOW + f"  (start_epoch will be set automatically from the checkpoint)" + Style.RESET_ALL)
+        print(Fore.YELLOW + f"{'='*60}\n" + Style.RESET_ALL)
+
     print(f"Start training for {args.epochs} epochs")
+    print(Fore.CYAN + f"  Tip: To stop training gracefully at the end of an epoch, run:" + Style.RESET_ALL)
+    print(Fore.CYAN + f"       touch {args.log_dir}/STOP" + Style.RESET_ALL)
     start_time = time.time()
     best_evaluate_metric_value = 0
     for epoch in range(args.start_epoch, args.epochs):
@@ -218,10 +244,10 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
                     evaluator_list=evaluator_list,
                     device=device,
                     epoch=epoch,
-                    # name=test_dataset_name,
+                    name=test_dataset_name,
                     log_writer=log_writer,
                     args=args,
-                    # is_test=False,
+                    is_test=False,
                 )
                 one_metric_value = {}
                 # Read the metric value from the test_stats dict
@@ -265,6 +291,26 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
                 log_writer.flush()
             with open(os.path.join(args.output_dir, "log.txt"), mode="a", encoding="utf-8") as f:
                 f.write(json.dumps(log_stats) + "\n")
+
+        # Check for STOP signal at the end of each epoch
+        if check_stop_signal(args.log_dir):
+            print(Fore.YELLOW + f"\n{'='*60}" + Style.RESET_ALL)
+            print(Fore.YELLOW + "  STOP signal detected! Saving model and stopping training..." + Style.RESET_ALL)
+            print(Fore.YELLOW + f"{'='*60}\n" + Style.RESET_ALL)
+            # Save the model before stopping
+            misc.save_model(
+                args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
+                loss_scaler=loss_scaler, epoch=epoch)
+            print(Fore.GREEN + f"  Model saved at epoch {epoch}." + Style.RESET_ALL)
+            checkpoint_path = os.path.join(args.output_dir, f'checkpoint-{epoch}.pth')
+            print(Fore.GREEN + f"  To resume training, set in your YAML:" + Style.RESET_ALL)
+            print(Fore.GREEN + f"       resume: {checkpoint_path}" + Style.RESET_ALL)
+            # Remove the STOP file so next run doesn't immediately stop
+            stop_file = os.path.join(args.log_dir, 'STOP')
+            if os.path.exists(stop_file):
+                os.remove(stop_file)
+                print(Fore.GREEN + f"  STOP file removed." + Style.RESET_ALL)
+            break
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
