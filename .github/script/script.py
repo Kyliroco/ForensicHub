@@ -48,6 +48,7 @@ def main():
     # result = run_cmd(
     #     "uv pip install wheel/jpegio-0.2.8-cp311-cp311-manylinux_2_24_x86_64.whl"
     # )
+    run_cmd("uv pip install imdlbenco13==0.2.1")
     run_cmd("uv pip install wheel/dvc-3.63.0-py3-none-any.whl[s3]")
     # run_cmd("uv pip install -U pathspec==0.12.1")
     run_cmd("dvc import git@github.maif.io:IODA/data_registry.git data/document/DocTamperV1/FCD --rev DocTamperV1-FCD@1.0.0 -o data/Doctamper/FCD")
