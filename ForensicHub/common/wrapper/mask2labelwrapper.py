@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+from torch.amp import autocast
 
 from ForensicHub.registry import MODELS, build_from_registry, register_model
 from ForensicHub.core.base_model import BaseModel
@@ -35,6 +36,10 @@ class Mask2LabelWrapper(BaseModel):
             if self.name == 'Cat_Net':
                 features = self.base_model.forward_features(image=image, mask=mask, edge_mask=edge_mask, label=label,
                                                             DCT_coef=kwargs['DCT_coef'], qtables=kwargs['qtables'])
+            elif self.name == 'Mesorch':
+                # Disable autocast for Mesorch because DCT matrix operations don't support fp16
+                with autocast(device_type='cuda', enabled=False):
+                    features = self.base_model.forward_features(image=image.float(), mask=mask, edge_mask=edge_mask, label=label)
             else:
                 features = self.base_model.forward_features(image=image, mask=mask, edge_mask=edge_mask, label=label)
             if type(features) == tuple:
