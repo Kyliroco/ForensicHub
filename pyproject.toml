@@ -77,7 +77,10 @@ dependencies = [
     "dlib",
     "imgaug"
 ]
-
+[project.optional-dependencies]
+mlops = [
+  "mlflow"
+]
 [project.urls]
 Homepage = "https://github.com/scu-zjz/ForensicHub"
 Documentation = "https://github.com/scu-zjz/ForensicHub-doc"
