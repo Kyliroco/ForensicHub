@@ -10,6 +10,7 @@ build
 DeepfakeBench
 ForensicHub/log
 forensichub.egg-info
-weight
+weight/**.pth
+weight/**.th
 .venv
 ForensicHub13.egg-info
