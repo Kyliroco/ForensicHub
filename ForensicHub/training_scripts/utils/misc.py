@@ -268,27 +268,62 @@ class NativeScalerWithGradNormCount:
         self._scaler = torch.amp.GradScaler("cuda")
         self._nan_skip_count = 0
 
+    def _sync_nan_flag(self, has_nan: bool) -> bool:
+        """
+        Synchronize NaN detection across all ranks in distributed training.
+        Returns True if ANY rank detected NaN, ensuring all ranks take the same code path.
+        This prevents NCCL AllReduce desynchronization when one rank skips a batch.
+        """
+        if not is_dist_avail_and_initialized():
+            return has_nan
+
+        # Create a tensor with 1.0 if NaN detected, 0.0 otherwise
+        nan_flag = torch.tensor([1.0 if has_nan else 0.0], device='cuda')
+        # Use MAX reduction: if any rank has NaN (1.0), result will be 1.0
+        dist.all_reduce(nan_flag, op=dist.ReduceOp.MAX)
+        # Return True if any rank detected NaN
+        return nan_flag.item() > 0.5
+
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
         # Check if loss is NaN or Inf before backward
-        if not torch.isfinite(loss).all():
-            print(f"[Warning] Loss is NaN/Inf (value={loss.item() if loss.numel() == 1 else 'tensor'}), skipping batch")
+        local_nan_detected = not torch.isfinite(loss).all()
+
+        # Synchronize NaN detection across all ranks to prevent NCCL desync
+        any_rank_has_nan = self._sync_nan_flag(local_nan_detected)
+
+        if any_rank_has_nan:
+            if local_nan_detected:
+                print(f"[Warning] Loss is NaN/Inf (value={loss.item() if loss.numel() == 1 else 'tensor'}), skipping batch")
+            else:
+                print(f"[Warning] Another rank detected NaN/Inf loss, skipping batch to stay synchronized")
             self._nan_skip_count += 1
             optimizer.zero_grad()
             return torch.tensor(0.0)
 
         # Try backward pass with NaN detection
+        backward_nan_detected = False
         try:
             self._scaler.scale(loss).backward(create_graph=create_graph)
         except RuntimeError as e:
             if "nan" in str(e).lower() or "inf" in str(e).lower():
-                print(f"[Warning] NaN/Inf detected during backward pass, skipping batch: {e}")
-                self._nan_skip_count += 1
-                optimizer.zero_grad()
-                # Update scaler to reduce scale factor
-                self._scaler.update()
-                return torch.tensor(0.0)
+                backward_nan_detected = True
+                backward_error_msg = str(e)
             else:
                 raise  # Re-raise if it's a different error
+
+        # Synchronize backward NaN detection across all ranks
+        any_rank_backward_nan = self._sync_nan_flag(backward_nan_detected)
+
+        if any_rank_backward_nan:
+            if backward_nan_detected:
+                print(f"[Warning] NaN/Inf detected during backward pass, skipping batch: {backward_error_msg}")
+            else:
+                print(f"[Warning] Another rank detected NaN/Inf during backward, skipping batch to stay synchronized")
+            self._nan_skip_count += 1
+            optimizer.zero_grad()
+            # Update scaler to reduce scale factor
+            self._scaler.update()
+            return torch.tensor(0.0)
 
         if update_grad:
             if clip_grad is not None:
@@ -300,8 +335,16 @@ class NativeScalerWithGradNormCount:
                 norm = get_grad_norm_(parameters)
 
             # Check for NaN/Inf in gradients after unscale
-            if not torch.isfinite(norm):
-                print(f"[Warning] NaN/Inf gradients detected after unscale (norm={norm}), skipping optimizer step")
+            local_grad_nan = not torch.isfinite(norm)
+
+            # Synchronize gradient NaN detection across all ranks
+            any_rank_grad_nan = self._sync_nan_flag(local_grad_nan)
+
+            if any_rank_grad_nan:
+                if local_grad_nan:
+                    print(f"[Warning] NaN/Inf gradients detected after unscale (norm={norm}), skipping optimizer step")
+                else:
+                    print(f"[Warning] Another rank detected NaN/Inf gradients, skipping optimizer step to stay synchronized")
                 self._nan_skip_count += 1
                 optimizer.zero_grad()
                 self._scaler.update()

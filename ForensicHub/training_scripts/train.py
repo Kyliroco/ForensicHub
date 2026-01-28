@@ -204,7 +204,6 @@ def main(
 
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-
     model.to(device)
 
     model_without_ddp = model
