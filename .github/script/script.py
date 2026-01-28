@@ -48,7 +48,24 @@ def main():
     # result = run_cmd(
     #     "uv pip install wheel/jpegio-0.2.8-cp311-cp311-manylinux_2_24_x86_64.whl"
     # )
-    run_cmd("nvidia-smi")
+    run_cmd("uv pip install wheel/dvc-3.63.0-py3-none-any.whl[s3]")
+    # run_cmd("uv pip install -U pathspec==0.12.1")
+    run_cmd("dvc import git@github.maif.io:IODA/data_registry.git data/document/DocTamperV1/FCD --rev DocTamperV1-FCD@1.0.0 -o data/Doctamper/FCD")
+    run_cmd('aws s3 cp \
+        s3://apiirregularites-build-alteration-documentaire/POC_Forgery_detection/weights/TruFor/mit_b2.pth \
+        weights/mit_b2.pth \
+        --endpoint-url https://s3-niort.maif.local')
+    run_cmd('aws s3 cp \
+        s3://apiirregularites-build-alteration-documentaire/POC_Forgery_detection/weights/TruFor/noiseprint++.th \
+        weights/noiseprint++.th \
+        --endpoint-url https://s3-niort.maif.local')
+    run_cmd("cd ForensicHub && \
+        torchrun \
+        --standalone \
+        --nnodes=1 \
+        --nproc_per_node=1 \
+        training_scripts/train.py \
+        --config statics/mask2label/trufor_train.yaml")
     # print("ls -la /")
     # run_cmd("ls -al /")
     # print("ls -al /__w")
