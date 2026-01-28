@@ -5,3 +5,11 @@ data/
 /FCD
 /TrainingSet
 /TestingSet
+build
+.dvc/config.local
+DeepfakeBench
+ForensicHub/log
+forensichub.egg-info
+weight
+.venv
+ForensicHub13.egg-info
