@@ -281,8 +281,10 @@ class NativeScalerWithGradNormCount:
         nan_flag = torch.tensor([1.0 if has_nan else 0.0], device='cuda')
         # Use MAX reduction: if any rank has NaN (1.0), result will be 1.0
         dist.all_reduce(nan_flag, op=dist.ReduceOp.MAX)
-        # Return True if any rank detected NaN
-        return nan_flag.item() > 0.5
+        result = nan_flag.item() > 0.5
+        # Explicitly free the tensor to avoid memory accumulation
+        del nan_flag
+        return result
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
         # Check if loss is NaN or Inf before backward
@@ -293,12 +295,16 @@ class NativeScalerWithGradNormCount:
 
         if any_rank_has_nan:
             if local_nan_detected:
-                print(f"[Warning] Loss is NaN/Inf (value={loss.item() if loss.numel() == 1 else 'tensor'}), skipping batch")
+                loss_val = loss.item() if loss.numel() == 1 else 'tensor'
+                print(f"[Warning] Loss is NaN/Inf (value={loss_val}), skipping batch")
             else:
                 print(f"[Warning] Another rank detected NaN/Inf loss, skipping batch to stay synchronized")
             self._nan_skip_count += 1
             optimizer.zero_grad()
-            return torch.tensor(0.0)
+            # Free memory from the forward pass computation graph
+            del loss
+            torch.cuda.empty_cache()
+            return torch.tensor(0.0, device='cpu')
 
         # Try backward pass with NaN detection
         backward_nan_detected = False
@@ -323,7 +329,10 @@ class NativeScalerWithGradNormCount:
             optimizer.zero_grad()
             # Update scaler to reduce scale factor
             self._scaler.update()
-            return torch.tensor(0.0)
+            # Free memory
+            del loss
+            torch.cuda.empty_cache()
+            return torch.tensor(0.0, device='cpu')
 
         if update_grad:
             if clip_grad is not None:
@@ -348,7 +357,9 @@ class NativeScalerWithGradNormCount:
                 self._nan_skip_count += 1
                 optimizer.zero_grad()
                 self._scaler.update()
-                return torch.tensor(0.0)
+                # Free memory
+                torch.cuda.empty_cache()
+                return torch.tensor(0.0, device='cpu')
 
             self._scaler.step(optimizer)
             self._scaler.update()
