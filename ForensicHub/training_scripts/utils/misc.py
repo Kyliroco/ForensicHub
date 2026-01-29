@@ -267,6 +267,7 @@ class NativeScalerWithGradNormCount:
     def __init__(self):
         self._scaler = torch.amp.GradScaler("cuda")
         self._nan_skip_count = 0
+        self._last_nan_skipped = False
 
     def _sync_nan_flag(self, has_nan: bool) -> bool:
         """
@@ -287,6 +288,7 @@ class NativeScalerWithGradNormCount:
         return result
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
+        self._last_nan_skipped = False
         # Check if loss is NaN or Inf before backward
         local_nan_detected = not torch.isfinite(loss).all()
 
@@ -300,6 +302,7 @@ class NativeScalerWithGradNormCount:
             else:
                 print(f"[Warning] Another rank detected NaN/Inf loss, skipping batch to stay synchronized")
             self._nan_skip_count += 1
+            self._last_nan_skipped = True
             optimizer.zero_grad()
             # Free memory from the forward pass computation graph
             del loss
@@ -326,6 +329,7 @@ class NativeScalerWithGradNormCount:
             else:
                 print(f"[Warning] Another rank detected NaN/Inf during backward, skipping batch to stay synchronized")
             self._nan_skip_count += 1
+            self._last_nan_skipped = True
             optimizer.zero_grad()
             # Update scaler to reduce scale factor
             self._scaler.update()
@@ -355,6 +359,7 @@ class NativeScalerWithGradNormCount:
                 else:
                     print(f"[Warning] Another rank detected NaN/Inf gradients, skipping optimizer step to stay synchronized")
                 self._nan_skip_count += 1
+                self._last_nan_skipped = True
                 optimizer.zero_grad()
                 self._scaler.update()
                 # Free memory
@@ -377,6 +382,11 @@ class NativeScalerWithGradNormCount:
     def nan_skip_count(self):
         """Returns the number of batches skipped due to NaN/Inf."""
         return self._nan_skip_count
+
+    @property
+    def last_nan_skipped(self):
+        """Returns True if the last call to __call__ resulted in a NaN/Inf skip."""
+        return self._last_nan_skipped
 
 
 def get_grad_norm_(parameters, norm_type: float = 2.0) -> torch.Tensor:
