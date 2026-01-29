@@ -8,7 +8,6 @@ causing an OOM on the next forward pass.
 """
 import math
 import sys
-import gc
 from typing import Iterable
 
 import torch
@@ -91,7 +90,6 @@ def train_one_epoch(model: torch.nn.Module,
         if loss_scaler.last_nan_skipped:
             del output_dict, loss, predict_loss, visual_loss
             del mask_pred, visual_image
-            gc.collect()
             torch.cuda.empty_cache()
             if (data_iter_step + 1) % accum_iter == 0:
                 optimizer.zero_grad()
