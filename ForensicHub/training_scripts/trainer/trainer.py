@@ -38,7 +38,7 @@ def train_one_epoch(model: torch.nn.Module,
         amp_placeholder = nullcontext()
         print("Auto Mixed Precision (AMP) is disabled.")
     else:
-        amp_placeholder = torch.cuda.amp.autocast()
+        amp_placeholder = torch.amp.autocast("cuda")
         print("Auto Mixed Precision (AMP) is enabled.")
 
     accum_iter = args.accum_iter
