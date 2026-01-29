@@ -20,7 +20,7 @@ from ForensicHub.registry import (
 )
 from ForensicHub.common.evaluation import PixelF1, ImageF1
 from IMDLBenCo.training_scripts.tester import test_one_epoch
-from IMDLBenCo.training_scripts.trainer import train_one_epoch
+from ForensicHub.training_scripts.trainer import train_one_epoch
 from ForensicHub.common.utils.yaml import load_yaml_config, split_config, add_attr
 
 
