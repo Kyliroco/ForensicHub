@@ -1,0 +1,1 @@
+python create_dataset.py --config datasets_3.txt --out data/dataset_pub_2 --seed 42 --out-rest data/dataset_pub_test_2

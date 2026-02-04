@@ -1,53 +1,140 @@
 # DDP
-gpus: "0,1,2,3"
+gpus: "2,3"
 flag: train
 
 # Log
-log_dir: "./log/mask2label_mesorch_df_train"
+log_dir: "./log/mesorch_df_train_2"
 
 # Task
-if_predict_label: true
-if_predict_mask: false
+if_predict_label: false
+if_predict_mask: true
 
 # Model
 model:
-  name: Mask2LabelWrapper
+  name: Mesorch
   init_config:
-    name: Mesorch
-    init_config:
-      conv_pretrain: true
-      seg_pretrain_path: /mnt/data0/xuekang/workspace/convswin/mit_b3.pth
+    conv_pretrain: true
+    seg_pretrain_path: /home/59435a/Forensic_hub/weight/mit_b3.pth
 
 # Train dataset
 train_dataset:
-  name: AIGCLabelDataset
-  dataset_name: DiffusionForensics_train
-  init_config:
-    image_size: 224
-    path: /mnt/data1/public_datasets/AIGC/DiffusionForensics/images/train.json
-#  Test dataset (one or many)
-test_dataset:
-  - name: AIGCLabelDataset
-    dataset_name: DiffusionForensics_test
+    name: DocDataset
+    dataset_name: Bigdataset
     init_config:
-      image_size: 224
-      path: /mnt/data1/public_datasets/AIGC/DiffusionForensics/images/test.json
+      path: /home/59435a/Forensic_hub/data/big_dataset
+      suffix_img: 
+        - ".png"
+        - ".jpeg"
+        - ".jpg"
+
+test_dataset:
+# FCD
+  - name: DocDataset
+    dataset_name: fcd
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/FCD
+  - name: DocDataset
+    dataset_name: fcd_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/FCD_recompress
+# FUNSD
+  - name: DocDataset
+    dataset_name: funsd
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/Funsd
+      suffix_img: ".png"
+  - name: DocDataset
+    dataset_name: funsd_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/funsd_recompress
+      suffix_img: ".png"
+# Maif authentic
+  - name: DocDataset
+    dataset_name: Maif_authentic
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/Maif_authentic
+  - name: DocDataset
+    dataset_name: Maif_authentic_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/Maif_authentic_recompress
+# Maif forged
+  - name: DocDataset
+    dataset_name: Maif_Forged
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/Maif_Forged
+# SCD
+  - name: DocDataset
+    dataset_name: scd
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/SCD
+  - name: DocDataset
+    dataset_name: scd_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/SCD_recompress
+# sroie
+  - name: DocDataset
+    dataset_name: sroie
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/Sroie
+  - name: DocDataset
+    dataset_name: sroie_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/Sroie_recompress
+# Testingset
+  - name: DocDataset
+    dataset_name: DocTamperData_test
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/TestingSet
+  - name: DocDataset
+    dataset_name: DocTamperData_test_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/big_test/TestingSet_recompress
+
+
+
+#   name: DocDataset
+#   dataset_name: DocTamperData_train
+#   init_config:
+#     path: /home/59435a/Forensic_hub/data/Doctamper/TrainingSet
+#   # name: DocDataset
+#   # dataset_name: DocTamperData_fcd
+#   # init_config:
+#     # path: /home/59435a/Forensic_hub/data/Doctamper/FCD
+# test_dataset:
+#   - name: DocDataset
+#     dataset_name: DocTamperData_test
+#     init_config:
+#       path: /home/59435a/Forensic_hub/data/Doctamper/TestingSet
+#   - name: DocDataset
+#     dataset_name: DocTamperData_scd
+#     init_config:
+#       path: /home/59435a/Forensic_hub/data/Doctamper/SCD
+#   - name: DocDataset
+#     dataset_name: DocTamperData_fcd
+#     init_config:
+#       path: /home/59435a/Forensic_hub/data/Doctamper/FCD
 
 # Transform
 transform:
-  name: AIGCTransform
+  name: DocTransform
   init_config:
     norm_type: image_net
 
 # Evaluators
 evaluator:
-  - name: ImageF1
+  # - name: ImageF1
+  #   init_config:
+  #     threshold: 0.5
+  - name: PixelIOU
+    init_config:
+      threshold: 0.5
+  - name: PixelF1
     init_config:
       threshold: 0.5
 
 # Training related
-batch_size: 128
-test_batch_size: 32
+batch_size: 10
+test_batch_size: 14
 epochs: 20
 accum_iter: 1
 record_epoch: 0  # Save the best only after record epoch.
@@ -57,11 +144,11 @@ no_model_eval: false
 test_period: 1
 
 # Logging & TensorBoard
-log_per_epoch_count: 20
+log_per_epoch_count: 10
 
 # DDP & AMP settings
 find_unused_parameters: true
-use_amp: true
+use_amp: false
 
 # Optimizer parameters
 weight_decay: 0.05
@@ -79,8 +166,8 @@ num_workers: 8
 pin_mem: true
 
 # Distributed training parameters
-world_size: 1
-local_rank: -1
+# world_size: 1
+# local_rank: -1
 dist_on_itp: false
 dist_url: "env://"
 

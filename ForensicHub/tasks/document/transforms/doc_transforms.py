@@ -40,27 +40,26 @@ class DocTransform(BaseTransform):
     def get_train_transform(self) -> albu.Compose:
         """Get training transforms."""
         return albu.Compose([
-            # # Flips
-            # albu.HorizontalFlip(p=0.5),
-            # albu.VerticalFlip(p=0.5),
-            # # Brightness and contrast fluctuation
-            # albu.RandomBrightnessContrast(
-            #     brightness_limit=(-0.1, 0.1),
-            #     contrast_limit=0.1,
-            #     p=1
-            # ),
-            # albu.ImageCompression(
-            #     quality_lower=70,
-            #     quality_upper=100,
-            #     p=0.2
-            # ),
-            # # Rotate
-            # albu.RandomRotate90(p=0.5),
-            # # Blur
-            # albu.GaussianBlur(
-            #     blur_limit=(3, 7),
-            #     p=0.2
-            # )
+            # Flips
+            albu.HorizontalFlip(p=0.5),
+            albu.VerticalFlip(p=0.5),
+            # Brightness and contrast fluctuation
+            albu.RandomBrightnessContrast(
+                brightness_limit=(-0.1, 0.1),
+                contrast_limit=0.1,
+                p=1
+            ),
+            albu.ImageCompression(
+                quality_range=(50,100),
+                p=0.1
+            ),
+            # Rotate
+            albu.RandomRotate90(p=0.5),
+            # Blur
+            albu.GaussianBlur(
+                blur_limit=(3, 7),
+                p=0.2
+            )
         ])
 
     def get_test_transform(self) -> albu.Compose:

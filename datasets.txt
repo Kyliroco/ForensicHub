@@ -1,0 +1,16 @@
+# name;root;percent
+TestingSet;/home/59435a/data_registry/data_process_out/doctamper_testingset;0
+TestingSet_recompress;/home/59435a/data_registry/data_process_out/doctamper_testingset_recompress;0
+TrainingSet;/home/59435a/data_registry/data_process_out/doctamper_trainingset;100
+TrainingSet_recompress;/home/59435a/data_registry/data_process_out/doctamper_trainingset_recompress;100
+SCD;/home/59435a/data_registry/data_process_out/scd;0
+SCD_recompress;/home/59435a/data_registry/data_process_out/scd_recompress;0
+FCD;/home/59435a/data_registry/data_process_out/fcd;0
+FCD_recompress;/home/59435a/data_registry/data_process_out/fcd_recompress;0
+Funsd;/home/59435a/data_registry/data_process_out/funsd;5
+funsd_recompress;/home/59435a/data_registry/data_process_out/funsd_recompress;5
+Maif_authentic;/home/59435a/data_registry/data_process_out/old_maif_authentic;5
+Maif_authentic_recompress;/home/59435a/data_registry/data_process_out/old_maif_authentic_recompress;5
+Maif_Forged;/home/59435a/data_registry/data_process_out/old_maif_forged;0
+Sroie;/home/59435a/data_registry/data_process_out/sroie;5
+Sroie_recompress;/home/59435a/data_registry/data_process_out/sroie_recompress;5
