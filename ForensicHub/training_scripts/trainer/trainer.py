@@ -123,19 +123,19 @@ def train_one_epoch(model: torch.nn.Module,
             for k, v in visual_loss_reduced.items():
                 log_writer.add_scalar(f"train_loss/{k}", v, epoch_1000x)
 
-        if data_dict.get('image') is not None:
-            samples = data_dict['image']
-            if data_dict.get('mask') is not None:
-                mask = data_dict['mask']
+    if data_dict.get('image') is not None:
+        samples = data_dict['image']
+        if data_dict.get('mask') is not None:
+            mask = data_dict['mask']
 
-        if log_writer is not None:
-            if data_dict.get('image') is not None:
-                log_writer.add_images('train/image', denormalize(samples), epoch)
-            if mask_pred is not None:
-                log_writer.add_images('train/predict', mask_pred, epoch)
-                log_writer.add_images('train/predict_thresh_0.5', (mask_pred > 0.5) * 1.0, epoch)
-            if data_dict.get('mask') is not None:
-                log_writer.add_images('train/gt_mask', mask, epoch)
+    if log_writer is not None:
+        if data_dict.get('image') is not None:
+            log_writer.add_images('train/image', denormalize(samples), epoch)
+        if mask_pred is not None:
+            log_writer.add_images('train/predict', mask_pred, epoch)
+            log_writer.add_images('train/predict_thresh_0.5', (mask_pred > 0.5) * 1.0, epoch)
+        if data_dict.get('mask') is not None:
+            log_writer.add_images('train/gt_mask', mask, epoch)
 
         if visual_image is not None:
             for k, v in visual_image.items():
