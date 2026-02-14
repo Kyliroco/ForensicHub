@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import argparse
 import math
@@ -21,6 +22,40 @@ class DatasetSpec:
     max_total: int  # max pool size (train+test)
     train_percent: float  # 0-100
     test_percent: float   # 0-100
+import re
+
+TILE_RE = re.compile(r"^(?P<base>.+)_(?P<h>\d+)_(?P<w>\d+)$")
+
+def root_stem(stem: str) -> str:
+    """
+    Return the base stem without trailing _H_W if present.
+    """
+    m = TILE_RE.match(stem)
+    if m:
+        return m.group("base")
+    return stem
+
+
+def group_by_root(stems: List[str]) -> Dict[str, List[str]]:
+    groups: Dict[str, List[str]] = {}
+    for s in stems:
+        groups.setdefault(root_stem(s), []).append(s)
+    return groups
+
+def has_origin_tile(group: List[str]) -> bool:
+    """
+    Rules:
+    - If group has only one file -> always valid (standalone image)
+    - If group has multiple tiles -> must contain a _0_0 tile
+    """
+    if len(group) == 1:
+        return True
+
+    for stem in group:
+        if stem.endswith("_0_0"):
+            return True
+
+    return False
 
 
 def list_files_flat(dirpath: Path, exts: set[str]) -> Dict[str, Path]:
@@ -149,6 +184,78 @@ def link_one(
 
     return created
 
+def process_dataset(spec: DatasetSpec, args, rng_seed: int):
+    rng = random.Random(rng_seed)
+
+    total_links_train = 0
+    total_links_test = 0
+
+    images_dir = spec.root / "images"
+    masks_dir = spec.root / "masks"
+
+    if not images_dir.is_dir():
+        print(f"[{spec.name}] Missing images/ folder, skipping: {images_dir}")
+        return 0, 0
+
+    imgs = list_files_flat(images_dir, IMG_EXTS)
+    msks = list_files_flat(masks_dir, MSK_EXTS) if masks_dir.is_dir() else {}
+
+    if not imgs:
+        print(f"[{spec.name}] 0 images found, skipping.")
+        return 0, 0
+
+    img_groups_all = group_by_root(list(imgs.keys()))
+    msk_groups_all = group_by_root(list(msks.keys())) if msks else {}
+
+    img_groups = {k: v for k, v in img_groups_all.items() if has_origin_tile(v)}
+    msk_groups = {k: v for k, v in msk_groups_all.items() if has_origin_tile(v)} if msks else {}
+
+    if args.require_masks:
+        keys = sorted([k for k in img_groups.keys() if k in msk_groups])
+        mode = "pair-only-group"
+    else:
+        keys = sorted(img_groups.keys())
+        mode = "image-first-group"
+
+    if not keys:
+        print(f"[{spec.name}] mode={mode} -> 0 eligible items. Skipping.")
+        return 0, 0
+
+    pool = keys[:]
+    rng.shuffle(pool)
+    if len(pool) > spec.max_total:
+        pool = pool[: spec.max_total]
+    n_pool = len(pool)
+
+    k_train = int(math.floor(n_pool * (spec.train_percent / 100.0)))
+    k_test = int(math.floor(n_pool * (spec.test_percent / 100.0)))
+
+    k_train = min(k_train, n_pool)
+    k_test = min(k_test, n_pool - k_train)
+
+    train_keys = pool[:k_train]
+    test_keys = pool[k_train : k_train + k_test]
+    ignored = pool[k_train + k_test :]
+
+    print(
+        f"[{spec.name}] mode={mode} eligible={len(keys)} "
+        f"pool={n_pool} (max={spec.max_total}) "
+        f"train={len(train_keys)} test={len(test_keys)} ignored={len(ignored)}"
+    )
+
+    for group in train_keys:
+        for stem in img_groups[group]:
+            total_links_train += link_one(
+                args.out_train, spec.name, stem, imgs, msks, args.dry_run, train_flat=True
+            )
+
+    for group in test_keys:
+        for stem in img_groups[group]:
+            total_links_test += link_one(
+                args.out_test, spec.name, stem, imgs, msks, args.dry_run, train_flat=False
+            )
+
+    return total_links_train, total_links_test
 
 def main() -> None:
     ap = argparse.ArgumentParser(
@@ -181,65 +288,17 @@ def main() -> None:
     total_links_train = 0
     total_links_test = 0
 
-    for spec in specs:
-        images_dir = spec.root / "images"
-        masks_dir = spec.root / "masks"
+    with ThreadPoolExecutor(max_workers=len(specs)) as executor:
+        futures = [
+            executor.submit(process_dataset, spec, args, args.seed + i)
+            for i, spec in enumerate(specs)
+        ]
 
-        if not images_dir.is_dir():
-            print(f"[{spec.name}] Missing images/ folder, skipping: {images_dir}")
-            continue
+        for fut in as_completed(futures):
+            train_links, test_links = fut.result()
+            total_links_train += train_links
+            total_links_test += test_links
 
-        imgs = list_files_flat(images_dir, IMG_EXTS)
-        msks = list_files_flat(masks_dir, MSK_EXTS) if masks_dir.is_dir() else {}
-
-        if not imgs:
-            print(f"[{spec.name}] 0 images found, skipping.")
-            continue
-
-        # Eligible keys
-        if args.require_masks:
-            keys = sorted(set(imgs.keys()) & set(msks.keys()))
-            mode = "pair-only"
-        else:
-            keys = sorted(imgs.keys())
-            mode = "image-first"
-
-        if not keys:
-            print(f"[{spec.name}] mode={mode} -> 0 eligible items. Skipping.")
-            continue
-
-        # Build capped pool
-        pool = keys[:]
-        rng.shuffle(pool)
-        if len(pool) > spec.max_total:
-            pool = pool[: spec.max_total]
-        n_pool = len(pool)
-
-        # Split counts from pool
-        k_train = int(math.floor(n_pool * (spec.train_percent / 100.0)))
-        k_test = int(math.floor(n_pool * (spec.test_percent / 100.0)))
-
-        # Safety (no overlap; cap if rounding overshoots)
-        k_train = min(k_train, n_pool)
-        k_test = min(k_test, n_pool - k_train)
-
-        train_keys = pool[:k_train]
-        test_keys = pool[k_train : k_train + k_test]
-        ignored = pool[k_train + k_test :]
-
-        print(
-            f"[{spec.name}] mode={mode} eligible={len(keys)} "
-            f"pool={n_pool} (max={spec.max_total}) "
-            f"train={len(train_keys)} test={len(test_keys)} ignored={len(ignored)}"
-        )
-
-        # Write train
-        for stem in train_keys:
-            total_links_train += link_one(args.out_train, spec.name, stem, imgs, msks, args.dry_run, train_flat=True)
-
-        # Write test
-        for stem in test_keys:
-            total_links_test += link_one(args.out_test, spec.name, stem, imgs, msks, args.dry_run, train_flat=False)
 
     if not args.dry_run:
         print(f"Done. Train links: {total_links_train} in {args.out_train}")
