@@ -26,7 +26,6 @@ setuptools
 six
 tensorflow
 timm
-torch
 torchvision
 tqdm
 ttach
