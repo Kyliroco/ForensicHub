@@ -1,16 +1,34 @@
+import pickle
+from typing import List
 import albumentations as albu
 from albumentations.pytorch import ToTensorV2
 from ForensicHub.core.base_transform import BaseTransform
 from ForensicHub.registry import register_transform
-
+from ForensicHub.common.transforms import PillowJpegCompression
 @register_transform("DocTransform")
 class DocTransform(BaseTransform):
     """Transform class for Doc tasks."""
 
-    def __init__(self, output_size: tuple = (512, 512), norm_type='image_net'):
+    def __init__(self,luminance_path,chrominance_path, output_size: tuple = (512, 512), norm_type='image_net',compression_type="cv"):
         super().__init__()
         self.output_size = output_size
         self.norm_type = norm_type
+        self.compression_type = compression_type
+        self.matrice_luminance = self._load_quantization_tables(luminance_path)
+        self.matrice_chrominance = self._load_quantization_tables(chrominance_path)
+
+
+    def _load_quantization_tables(self, file_path: str) -> List:
+        """Charge les tables de quantification depuis un fichier pickle.
+
+        Args:
+            file_path: Chemin vers le fichier pickle contenant les tables
+
+        Returns:
+            Liste de tables de quantification
+        """
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
 
     def get_post_transform(self) -> albu.Compose:
         """Get post-processing transforms like normalization and conversion to tensor."""
@@ -39,30 +57,70 @@ class DocTransform(BaseTransform):
 
     def get_train_transform(self) -> albu.Compose:
         """Get training transforms."""
-        return albu.Compose([
-            # Flips
-            albu.HorizontalFlip(p=0.5),
-            albu.VerticalFlip(p=0.5),
-            # Brightness and contrast fluctuation
-            albu.RandomBrightnessContrast(
-                brightness_limit=(-0.1, 0.1),
-                contrast_limit=0.1,
-                p=1
-            ),
-            albu.ImageCompression(
-                quality_range=(50,100),
-                p=0.1
-            ),
-            # Rotate
-            albu.RandomRotate90(p=0.5),
-            # Blur
-            albu.GaussianBlur(
-                blur_limit=(3, 7),
-                p=0.2
-            )
-        ])
+        if self.compression_type == "cv":
+            return albu.Compose([
+                albu.RandomCrop(
+                    height=512,
+                    width=512
+                ),
+                # Flips
+                albu.HorizontalFlip(p=0.5),
+                albu.VerticalFlip(p=0.5),
+                # Brightness and contrast fluctuation
+                
+                albu.RandomBrightnessContrast(
+                    brightness_limit=(-0.1, 0.1),
+                    contrast_limit=0.1,
+                    p=1
+                ),
+                albu.ImageCompression(
+                    quality_range=(75,100),
+                    p=0.2
+                ),
+                # Rotate
+                albu.RandomRotate90(p=0.5),
+                # Blur
+                albu.GaussianBlur(
+                    blur_limit=(3, 7),
+                    p=0.2
+                )
+            ])
+        elif self.compression_type == "pillow":
+            return albu.Compose([
+                albu.RandomCrop(
+                    height=512,
+                    width=512
+                ),
+                # Flips
+                albu.HorizontalFlip(p=0.5),
+                albu.VerticalFlip(p=0.5),
+                # Brightness and contrast fluctuation
+                albu.RandomBrightnessContrast(
+                    brightness_limit=(-0.1, 0.1),
+                    contrast_limit=0.1,
+                    p=1
+                ),
+                PillowJpegCompression(
+                    luma_tables=self.matrice_luminance,   # tirage aléatoire parmi ces 2
+                    chroma_tables=self.matrice_chrominance,          # toujours celle-ci
+                    p=0.2,
+                ),
+                # Rotate
+                albu.RandomRotate90(p=0.5),
+                # Blur
+                albu.GaussianBlur(
+                    blur_limit=(3, 7),
+                    p=0.2
+                )
+            ])
+        else:
+            raise ValueError
 
     def get_test_transform(self) -> albu.Compose:
         """Get testing transforms."""
         return albu.Compose([
+            albu.RandomCrop(
+                    height=512,
+                    width=512
+                ),
         ])
