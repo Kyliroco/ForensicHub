@@ -18,11 +18,12 @@ MSK_EXTS = {".png", ".PNG"}
 class DatasetSpec:
     name: str
     root: Path
-    percent: float  # 0-100
+    max_total: int  # max pool size (train+test)
+    train_percent: float  # 0-100
+    test_percent: float   # 0-100
 
 
 def list_files_flat(dirpath: Path, exts: set[str]) -> Dict[str, Path]:
-    """Map stem -> file path (non-recursive)."""
     out: Dict[str, Path] = {}
     if not dirpath.is_dir():
         return out
@@ -44,34 +45,8 @@ def safe_symlink(src: Path, dst: Path) -> None:
     os.symlink(src, dst)
 
 
-def parse_config(cfg_path: Path) -> List[DatasetSpec]:
-    specs: List[DatasetSpec] = []
-    for line in cfg_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = [p.strip() for p in line.split(";")]
-        if len(parts) != 3:
-            raise ValueError(f"Invalid config line (expected name;root;percent): {line}")
-        name, root_str, pct_str = parts
-        root = Path(root_str).expanduser()
-        pct = float(pct_str)
-        if not (0 <= pct <= 100):
-            raise ValueError(f"Percent must be in [0,100], got {pct} for {name}")
-        specs.append(DatasetSpec(name=name, root=root, percent=pct))
-    if not specs:
-        raise ValueError("Config is empty.")
-    return specs
-
-
 def safe_rmtree(path: Path, *, dry_run: bool) -> None:
-    """
-    Remove an output directory safely.
-    Refuses to delete root, empty paths, or non-directories.
-    """
     p = path.expanduser()
-
-    # Basic safety checks
     if not str(p).strip():
         raise ValueError("Refusing to delete empty path.")
     if p.resolve() == Path("/").resolve():
@@ -89,6 +64,53 @@ def safe_rmtree(path: Path, *, dry_run: bool) -> None:
     print(f"Removed output directory: {p}")
 
 
+def parse_config(cfg_path: Path) -> List[DatasetSpec]:
+    """
+    Format per line:
+      name;root;max_total;train_percent;test_percent
+
+    Example:
+      ds1;/data/ds1;100;70;20
+    """
+    specs: List[DatasetSpec] = []
+    for raw in cfg_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split(";")]
+        if len(parts) != 5:
+            raise ValueError(
+                f"Invalid config line (expected name;root;max_total;train_percent;test_percent): {line}"
+            )
+        name, root_str, max_str, train_str, test_str = parts
+        root = Path(root_str).expanduser()
+
+        max_total = int(max_str)
+        train_pct = float(train_str)
+        test_pct = float(test_str)
+
+        if max_total < 0:
+            raise ValueError(f"max_total must be >= 0, got {max_total} for {name}")
+        if not (0 <= train_pct <= 100) or not (0 <= test_pct <= 100):
+            raise ValueError(f"Percents must be in [0,100], got train={train_pct}, test={test_pct} for {name}")
+        if train_pct + test_pct > 100:
+            raise ValueError(f"train_percent + test_percent must be <= 100, got {train_pct + test_pct} for {name}")
+
+        specs.append(
+            DatasetSpec(
+                name=name,
+                root=root,
+                max_total=max_total,
+                train_percent=train_pct,
+                test_percent=test_pct,
+            )
+        )
+
+    if not specs:
+        raise ValueError("Config is empty.")
+    return specs
+
+
 def link_one(
     out_root: Path,
     ds_name: str,
@@ -96,14 +118,13 @@ def link_one(
     imgs: Dict[str, Path],
     msks: Dict[str, Path],
     dry_run: bool,
-    train: bool = False,
+    train_flat: bool = False,
 ) -> int:
-    """Create symlinks for one item. Returns number of links created."""
     created = 0
 
     img_path = imgs[stem]
-    if train:
-        out_img = out_root / "images" / (str(ds_name) + "_" + str(img_path.name))
+    if train_flat:
+        out_img = out_root / "images" / f"{ds_name}_{img_path.name}"
     else:
         out_img = out_root / ds_name / "images" / img_path.name
 
@@ -115,8 +136,8 @@ def link_one(
 
     msk_path: Optional[Path] = msks.get(stem)
     if msk_path is not None:
-        if train:
-            out_msk = out_root / "masks" / (str(ds_name) + "_" + str(msk_path.name))
+        if train_flat:
+            out_msk = out_root / "masks" / f"{ds_name}_{msk_path.name}"
         else:
             out_msk = out_root / ds_name / "masks" / msk_path.name
 
@@ -131,36 +152,34 @@ def link_one(
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Sample dataset items and create symlinks; optionally also output the complementary 'rest' split."
+        description="Sample per-dataset pool size + train/test percents from config and create symlinks."
     )
-    ap.add_argument("--config", required=True, type=Path, help="Config file: name;root;percent")
-    ap.add_argument("--out", required=True, type=Path, help="Output folder for selected symlinks")
-    ap.add_argument(
-        "--out-rest",
-        type=Path,
-        default=None,
-        help="Optional output folder for the complementary split (everything NOT selected).",
-    )
+    ap.add_argument("--config", required=True, type=Path, help="Config: name;root;max_total;train_percent;test_percent")
+    ap.add_argument("--out-train", required=True, type=Path, help="Output folder for TRAIN symlinks")
+    ap.add_argument("--out-test", required=True, type=Path, help="Output folder for TEST symlinks")
     ap.add_argument("--seed", type=int, default=123, help="Random seed")
-    ap.add_argument("--min-keep", type=int, default=1, help="Min items kept if percent>0 and dataset non-empty")
     ap.add_argument("--dry-run", action="store_true", help="Print actions without linking")
     ap.add_argument(
         "--require-masks",
         action="store_true",
         help="If set: only sample items that have both image+mask (pair-only mode).",
     )
+    ap.add_argument(
+        "--train-flat",
+        action="store_true",
+        help="If set: put train in out_train/images + out_train/masks with dsname_ prefix (like your previous train=True behavior).",
+    )
     args = ap.parse_args()
 
-    # --- NEW: clean output dirs before starting ---
-    safe_rmtree(args.out, dry_run=args.dry_run)
-    if args.out_rest is not None:
-        safe_rmtree(args.out_rest, dry_run=args.dry_run)
+    # Clean outputs
+    safe_rmtree(args.out_train, dry_run=args.dry_run)
+    safe_rmtree(args.out_test, dry_run=args.dry_run)
 
     rng = random.Random(args.seed)
     specs = parse_config(args.config)
 
-    total_links_sel = 0
-    total_links_rest = 0
+    total_links_train = 0
+    total_links_test = 0
 
     for spec in specs:
         images_dir = spec.root / "images"
@@ -177,6 +196,7 @@ def main() -> None:
             print(f"[{spec.name}] 0 images found, skipping.")
             continue
 
+        # Eligible keys
         if args.require_masks:
             keys = sorted(set(imgs.keys()) & set(msks.keys()))
             mode = "pair-only"
@@ -188,34 +208,42 @@ def main() -> None:
             print(f"[{spec.name}] mode={mode} -> 0 eligible items. Skipping.")
             continue
 
-        n = len(keys)
-        k = int(math.floor(n * (spec.percent / 100.0)))
-        if k == 0 and spec.percent > 0:
-            k = max(args.min_keep, 1)
-        k = min(k, n)
+        # Build capped pool
+        pool = keys[:]
+        rng.shuffle(pool)
+        if len(pool) > spec.max_total:
+            pool = pool[: spec.max_total]
+        n_pool = len(pool)
 
-        rng.shuffle(keys)
-        chosen = keys[:k]
-        rest = keys[k:]
+        # Split counts from pool
+        k_train = int(math.floor(n_pool * (spec.train_percent / 100.0)))
+        k_test = int(math.floor(n_pool * (spec.test_percent / 100.0)))
+
+        # Safety (no overlap; cap if rounding overshoots)
+        k_train = min(k_train, n_pool)
+        k_test = min(k_test, n_pool - k_train)
+
+        train_keys = pool[:k_train]
+        test_keys = pool[k_train : k_train + k_test]
+        ignored = pool[k_train + k_test :]
 
         print(
-            f"[{spec.name}] mode={mode} images={len(imgs)} masks_folder={masks_dir.is_dir()} "
-            f"eligible={n} keep={len(chosen)} rest={len(rest)}"
+            f"[{spec.name}] mode={mode} eligible={len(keys)} "
+            f"pool={n_pool} (max={spec.max_total}) "
+            f"train={len(train_keys)} test={len(test_keys)} ignored={len(ignored)}"
         )
 
-        # Selected split
-        for stem in chosen:
-            total_links_sel += link_one(args.out, spec.name, stem, imgs, msks, args.dry_run, train=True)
+        # Write train
+        for stem in train_keys:
+            total_links_train += link_one(args.out_train, spec.name, stem, imgs, msks, args.dry_run, train_flat=True)
 
-        # Rest split (optional)
-        if args.out_rest is not None:
-            for stem in rest:
-                total_links_rest += link_one(args.out_rest, spec.name, stem, imgs, msks, args.dry_run)
+        # Write test
+        for stem in test_keys:
+            total_links_test += link_one(args.out_test, spec.name, stem, imgs, msks, args.dry_run, train_flat=False)
 
     if not args.dry_run:
-        print(f"Done. Selected links: {total_links_sel} in {args.out}")
-        if args.out_rest is not None:
-            print(f"Done. Rest links: {total_links_rest} in {args.out_rest}")
+        print(f"Done. Train links: {total_links_train} in {args.out_train}")
+        print(f"Done. Test links:  {total_links_test} in {args.out_test}")
 
 
 if __name__ == "__main__":
