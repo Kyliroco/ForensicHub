@@ -3,7 +3,7 @@ gpus: "2,3"
 flag: train
 
 # Log
-log_dir: "./log/mesorch_df_train_2"
+log_dir: "./log/mesorch_df_train_5"
 
 # Task
 if_predict_label: false

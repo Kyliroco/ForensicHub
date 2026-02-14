@@ -3,7 +3,7 @@ gpus: "2,3"
 flag: train
 
 # Log
-log_dir: "./log/mesorch_df_train_3"
+log_dir: "./log/mesorch_df_train_5"
 
 # Task
 if_predict_label: false
@@ -15,30 +15,80 @@ model:
   init_config:
     conv_pretrain: true
     seg_pretrain_path: /home/59435a/Forensic_hub/weight/mit_b3.pth
+    pos_weight: 1
 
 # Train dataset
 train_dataset:
   name: DocDataset
   dataset_name: BigDatasetTrain
   init_config:
-    path: /home/59435a/Forensic_hub/data/dataset_pub
+    path: /home/59435a/Forensic_hub/data/dataset_pub_2
   # name: DocDataset
   # dataset_name: DocTamperData_fcd
   # init_config:
     # path: /home/59435a/Forensic_hub/data/Doctamper/FCD
 test_dataset:
+  # FCD
   - name: DocDataset
-    dataset_name: BigDatasetTest
+    dataset_name: fcd
     init_config:
-      path: /home/59435a/Forensic_hub/data/dataset_pub_test/TestingSet
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/FCD
   - name: DocDataset
-    dataset_name: DocTamperData_scd
+    dataset_name: fcd_recompress
     init_config:
-      path: /home/59435a/Forensic_hub/data/dataset_pub_test/SCD
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/FCD_recompress
+# FUNSD
   - name: DocDataset
-    dataset_name: DocTamperData_fcd
+    dataset_name: funsd
     init_config:
-      path: /home/59435a/Forensic_hub/data/dataset_pub_test/FCD
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/Funsd
+      suffix_img: ".png"
+  - name: DocDataset
+    dataset_name: funsd_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/funsd_recompress
+      suffix_img: ".png"
+# Maif authentic
+  - name: DocDataset
+    dataset_name: Maif_authentic
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/Maif_authentic
+  - name: DocDataset
+    dataset_name: Maif_authentic_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/Maif_authentic_recompress
+# Maif forged
+  - name: DocDataset
+    dataset_name: Maif_Forged
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/Maif_Forged
+# SCD
+  - name: DocDataset
+    dataset_name: scd
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/SCD
+  - name: DocDataset
+    dataset_name: scd_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/SCD_recompress
+# sroie
+  - name: DocDataset
+    dataset_name: sroie
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/Sroie
+  - name: DocDataset
+    dataset_name: sroie_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/Sroie_recompress
+# Testingset
+  - name: DocDataset
+    dataset_name: DocTamperData_test
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/TestingSet
+  - name: DocDataset
+    dataset_name: DocTamperData_test_recompress
+    init_config:
+      path: /home/59435a/Forensic_hub/data/dataset_pub_test_2/TestingSet_recompress
 
 # Transform
 transform:
@@ -61,7 +111,7 @@ evaluator:
 # Training related
 batch_size: 10
 test_batch_size: 14
-epochs: 20
+epochs: 50
 accum_iter: 1
 record_epoch: 0  # Save the best only after record epoch.
 
@@ -86,8 +136,8 @@ warmup_epochs: 1
 # Device and training control
 device: "cuda"
 seed: 42
-resume: ""
-start_epoch: 0
+resume: "/home/59435a/Forensic_hub/ForensicHub/log/mesorch_df_train_5/checkpoint-25.pth"
+start_epoch: 26
 num_workers: 8
 pin_mem: true
 
