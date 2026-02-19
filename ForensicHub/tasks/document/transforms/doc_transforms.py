@@ -84,6 +84,11 @@ class DocTransform(BaseTransform):
                 )
             ])
         elif self.compression_type == "pillow":
+            self.jpeg_compression = PillowJpegCompression(
+                luma_tables=self.matrice_luminance,
+                chroma_tables=self.matrice_chrominance,
+                p=1.0,
+            )
             return albu.Compose([
                 # Flips
                 albu.HorizontalFlip(p=0.5),
@@ -94,6 +99,7 @@ class DocTransform(BaseTransform):
                     contrast_limit=0.1,
                     p=1
                 ),
+                self.jpeg_compression,
                 # Rotate
                 albu.RandomRotate90(p=0.5),
                 # Blur

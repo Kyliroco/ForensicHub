@@ -77,12 +77,13 @@ class DocDataset(BaseDataset):
         return len(self.images)
 
     def _find_jpeg_dct_transform(self):
-        """Return the JpegCompressionWithDCT instance inside common_transform, or None."""
-        from ForensicHub.common.transforms import JpegCompressionWithDCT
+        """Return the first transform inside common_transform that exposes
+        ``_last_dct`` and ``_last_qtb`` (i.e. JpegCompressionWithDCT or
+        PillowJpegCompression), or None if none is found."""
         if self.common_transform is None:
             return None
         for t in getattr(self.common_transform, 'transforms', []):
-            if isinstance(t, JpegCompressionWithDCT):
+            if hasattr(t, '_last_dct') and hasattr(t, '_last_qtb'):
                 return t
         return None
 

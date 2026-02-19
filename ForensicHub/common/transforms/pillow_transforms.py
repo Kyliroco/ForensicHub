@@ -22,6 +22,12 @@ class PillowJpegCompression(ImageOnlyTransform):
     using those tables and immediately decoded back to RGB, replicating what happens
     when an image is saved/re-opened with those settings.
 
+    After each call the DCT coefficients and quantization table produced by the
+    **same** compression pass are available as:
+
+    - ``self._last_dct``  – int32 array of quantised DCT coefficients (Y channel)
+    - ``self._last_qtb``  – int32 8×8 luminance quantisation table
+
     Args:
         luma_tables (list[list[int]]): Non-empty list of luminance quantization
             tables.  Each table is a flat list of 64 integers that represent the
@@ -113,9 +119,12 @@ class PillowJpegCompression(ImageOnlyTransform):
 
         self.luma_tables = luma_tables
         self.chroma_tables = chroma_tables
+        self._last_dct = None
+        self._last_qtb = None
 
     def apply(self, img: np.ndarray, luma_table: list, chroma_table: list, **params) -> np.ndarray:
-        """Compress *img* with the given quantization tables and return the decoded result.
+        """Compress *img* with the given quantization tables, capture DCT/QTB,
+        and return the decoded result.
 
         Args:
             img: Input image as a ``uint8`` HxWxC NumPy array (RGB).
@@ -132,12 +141,25 @@ class PillowJpegCompression(ImageOnlyTransform):
         # Component 0 → luminance (Y), component 1 → chrominance (Cb/Cr).
         qtables = {0: luma_table, 1: chroma_table}
 
+        # --- ONE compression into memory ---
         buffer = BytesIO()
         pil_img.save(buffer, format="JPEG", qtables=qtables)
-        buffer.seek(0)
+        jpeg_bytes = buffer.getvalue()
 
-        compressed = Image.open(buffer)
-        compressed.load()  # force decoding before the buffer goes out of scope
+        # --- Write already-compressed bytes to a temp file (pure I/O) ---
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(jpeg_bytes)
+            tmp_path = tmp.name
+        try:
+            jpg = jpegio.read(tmp_path)
+            self._last_dct = jpg.coef_arrays[0].copy()
+            self._last_qtb = jpg.quant_tables[0].copy()
+        finally:
+            os.unlink(tmp_path)
+
+        # --- Decode pixels from the same in-memory buffer ---
+        compressed = Image.open(BytesIO(jpeg_bytes))
+        compressed.load()
         return np.array(compressed)
 
     def get_params(self) -> dict:
