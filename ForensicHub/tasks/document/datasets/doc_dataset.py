@@ -76,72 +76,78 @@ class DocDataset(BaseDataset):
     def __len__(self):
         return len(self.images)
 
+    def _find_jpeg_dct_transform(self):
+        """Return the JpegCompressionWithDCT instance inside common_transform, or None."""
+        from ForensicHub.common.transforms import JpegCompressionWithDCT
+        if self.common_transform is None:
+            return None
+        for t in getattr(self.common_transform, 'transforms', []):
+            if isinstance(t, JpegCompressionWithDCT):
+                return t
+        return None
+
     def __getitem__(self, index):
         img_path, mask_path = self.images[index]
         image = Image.open(img_path)
-        h,w = image.size
+        h, w = image.size
         img_real_path = os.path.realpath(img_path)
         mime = magic.from_file(img_real_path, mime=True)
         if mask_path:
             mask = np.clip(cv2.imread(mask_path, 0), 0, 1)
         else:
-            mask = np.zeros((w,h),dtype=np.uint8)
-        if self.train: # random-compression + crop
-            if self.get_dct_qtb:
-                if  mime == "image/jpeg":
-                    jpg = jpegio.read(img_path)
+            mask = np.zeros((w, h), dtype=np.uint8)
+
+        # --- Test mode: read DCT/QTB from the original file (no augmentation) ---
+        if not self.train and self.get_dct_qtb:
+            if mime == "image/jpeg":
+                jpg = jpegio.read(img_path)
+                dct = jpg.coef_arrays[0].copy()
+                qtb = jpg.quant_tables[0].copy()
+            else:
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
+                    tmp_path = tmp.name
+                    image.save(tmp_path, format="JPEG", quality=100, subsampling=0)
+                    image = Image.open(tmp_path)
+                    jpg = jpegio.read(tmp_path)
                     dct = jpg.coef_arrays[0].copy()
                     qtb = jpg.quant_tables[0].copy()
-                else:
-                    # Créer un fichier temporaire JPEG
-                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
-                        tmp_path = tmp.name
 
-                        # Sauvegarder en JPEG qualité 100
-                        image.save(tmp_path, format="JPEG", quality=100, subsampling=0)
-
-                        # Recharger l'image compressée
-                        image = Image.open(tmp_path)
-
-                        # Lire avec jpegio pour récupérer DCT et QTB
-                        jpg = jpegio.read(tmp_path)
-                        dct = jpg.coef_arrays[0].copy()
-                        qtb = jpg.quant_tables[0].copy()
-        else:
-            if self.get_dct_qtb:
-                if  mime == "image/jpeg":
-                    jpg = jpegio.read(img_path)
-                    dct = jpg.coef_arrays[0].copy()
-                    qtb = jpg.quant_tables[0].copy()
-                    # Créer un fichier temporaire JPEG
-                else:
-                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
-                        tmp_path = tmp.name
-
-                        # Sauvegarder en JPEG qualité 100
-                        image.save(tmp_path, format="JPEG", quality=100, subsampling=0)
-
-                        # Recharger l'image compressée
-                        image = Image.open(tmp_path)
-
-                        # Lire avec jpegio pour récupérer DCT et QTB
-                        jpg = jpegio.read(tmp_path)
-                        dct = jpg.coef_arrays[0].copy()
-                        qtb = jpg.quant_tables[0].copy()
         image = np.array(image)
         if self.common_transform:
             output = self.common_transform(image=image, mask=mask)
             image = output['image']
             mask = output['mask']
+
+        # --- Train mode: get DCT/QTB from the JpegCompressionWithDCT that ran inside
+        #     common_transform — same single compression pass, no second encoding. ---
+        if self.train and self.get_dct_qtb:
+            jpeg_t = self._find_jpeg_dct_transform()
+            if jpeg_t is not None and jpeg_t._last_dct is not None:
+                dct = jpeg_t._last_dct
+                qtb = jpeg_t._last_qtb
+            else:
+                # Fallback if the transform was not found or did not fire (p < 1)
+                if mime == "image/jpeg":
+                    jpg = jpegio.read(img_path)
+                    dct = jpg.coef_arrays[0].copy()
+                    qtb = jpg.quant_tables[0].copy()
+                else:
+                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
+                        tmp_path = tmp.name
+                        Image.fromarray(image).save(tmp_path, format="JPEG", quality=100, subsampling=0)
+                        jpg = jpegio.read(tmp_path)
+                        dct = jpg.coef_arrays[0].copy()
+                        qtb = jpg.quant_tables[0].copy()
+
         mask = torch.LongTensor(mask)
         mask = mask.unsqueeze(0)
-        label = (mask.sum(dim=(0, 1, 2)) != 0).long() 
+        label = (mask.sum(dim=(0, 1, 2)) != 0).long()
         if self.post_transform:
             image = self.post_transform(image=image)['image']
         if self.get_dct_qtb:
-            return {'image': image, 'mask': mask, 'label':label, 'dct': np.clip(np.abs(dct), 0,20), 'qt': qtb}
+            return {'image': image, 'mask': mask, 'label': label, 'dct': np.clip(np.abs(dct), 0, 20), 'qt': qtb}
         else:
-            return {'image': image, 'mask': mask, 'label':label}
+            return {'image': image, 'mask': mask, 'label': label}
 
 if __name__=='__main__':
     data_names = (('/mnt/data0/public_datasets/Doc/DocTamperV1/DocTamperV1-TrainingSet', False), ('/mnt/data0/public_datasets/Doc/DocTamperV1/DocTamperV1-TrainingSet', True))

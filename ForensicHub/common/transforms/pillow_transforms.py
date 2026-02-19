@@ -1,6 +1,10 @@
+import os
 import random
+import tempfile
 from io import BytesIO
 
+import cv2
+import jpegio
 import numpy as np
 from PIL import Image
 from albumentations.core.transforms_interface import ImageOnlyTransform
@@ -145,3 +149,79 @@ class PillowJpegCompression(ImageOnlyTransform):
 
     def get_transform_init_args_names(self) -> tuple:
         return ("luma_tables", "chroma_tables")
+
+
+class JpegCompressionWithDCT(ImageOnlyTransform):
+    """JPEG compression augmentation that exposes the DCT coefficients and
+    quantization table produced by the **same** compression pass.
+
+    Internally this transform:
+    1. Encodes the image to JPEG in a BytesIO buffer (ONE compression).
+    2. Writes the already-compressed bytes to a temporary file (pure I/O –
+       no second encoding step).
+    3. Reads DCT coefficients and the quantization table from that file with
+       ``jpegio``.
+    4. Decodes the compressed pixels from the same in-memory buffer.
+
+    After each call to ``__call__`` / ``apply`` the results are available as:
+    - ``self._last_dct``  – int32 array of quantised DCT coefficients (Y channel)
+    - ``self._last_qtb``  – int32 8×8 luminance quantisation table
+
+    Args:
+        quality_range (tuple[int, int]): Inclusive ``(min, max)`` quality
+            range.  A value is sampled uniformly at random on each call.
+            Defaults to ``(30, 100)``.
+        p (float): Probability of applying the transform.  Defaults to ``1.0``.
+    """
+
+    def __init__(
+        self,
+        quality_range: tuple = (30, 100),
+        always_apply: bool = False,
+        p: float = 1.0,
+    ):
+        super().__init__(always_apply, p)
+        self.quality_range = quality_range
+        self._last_dct = None
+        self._last_qtb = None
+
+    def apply(self, img: np.ndarray, quality: int = 75, **params) -> np.ndarray:
+        """Compress *img* once, capture DCT/QTB, return decompressed pixels.
+
+        Args:
+            img: ``uint8`` HxWxC NumPy array (RGB).
+            quality: JPEG quality factor (1–100).
+
+        Returns:
+            Compressed-then-decoded image as a ``uint8`` NumPy array with the
+            same shape as the input.
+        """
+        pil_img = Image.fromarray(img)
+
+        # --- ONE compression into memory ---
+        buffer = BytesIO()
+        pil_img.save(buffer, format="JPEG", quality=quality, subsampling=0)
+        jpeg_bytes = buffer.getvalue()
+
+        # --- Write already-compressed bytes to a temp file (pure I/O) ---
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(jpeg_bytes)
+            tmp_path = tmp.name
+        try:
+            jpg = jpegio.read(tmp_path)
+            self._last_dct = jpg.coef_arrays[0].copy()
+            self._last_qtb = jpg.quant_tables[0].copy()
+        finally:
+            os.unlink(tmp_path)
+
+        # --- Decode pixels from the same in-memory buffer ---
+        compressed = Image.open(BytesIO(jpeg_bytes))
+        compressed.load()
+        return np.array(compressed)
+
+    def get_params(self) -> dict:
+        quality = random.randint(self.quality_range[0], self.quality_range[1])
+        return {"quality": quality}
+
+    def get_transform_init_args_names(self) -> tuple:
+        return ("quality_range",)
