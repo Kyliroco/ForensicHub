@@ -3,7 +3,7 @@ gpus: "2,3"
 flag: train
 
 # Log
-log_dir: "./log/mesorch_df_train_5"
+log_dir: "./log/mesorch_25"
 
 # Task
 if_predict_label: false
@@ -119,6 +119,10 @@ transform:
   name: DocTransform
   init_config:
     norm_type: image_net
+    luminance_path: /home/59435a/Forensic_hub/quantification_luminance.pkl
+    chrominance_path: /home/59435a/Forensic_hub/quantification_chrominance.pkl
+    compression_type: cv
+    
 
 # Evaluators
 evaluator:

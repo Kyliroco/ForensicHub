@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import os
+import tempfile
 import cv2
 import torch
 import jpegio
@@ -7,7 +8,7 @@ import numpy as np
 from PIL import Image
 from ForensicHub.registry import register_dataset
 from ForensicHub.core.base_dataset import BaseDataset
-
+import magic
 
 @register_dataset("DocDataset")
 class DocDataset(BaseDataset):
@@ -55,7 +56,7 @@ class DocDataset(BaseDataset):
             if w < 512 or h < 512:
                 return None
 
-            mask_name = filename[:-len(self.suffix_img)] + self.suffix_mask
+            mask_name = filename[:-len(filename.split(".")[-1])-1] + self.suffix_mask
             mask_path = os.path.join(masks_dir, mask_name)
             if not os.path.isfile(mask_path):
                 mask_path = None
@@ -79,21 +80,54 @@ class DocDataset(BaseDataset):
         img_path, mask_path = self.images[index]
         image = Image.open(img_path)
         h,w = image.size
+        img_real_path = os.path.realpath(img_path)
+        mime = magic.from_file(img_real_path, mime=True)
         if mask_path:
             mask = np.clip(cv2.imread(mask_path, 0), 0, 1)
         else:
             mask = np.zeros((w,h),dtype=np.uint8)
         if self.train: # random-compression + crop
-            # A modifier laisser certaines images non altéré , utiliser mes matrice de compression et aucun interet de  faire le qtb.max>61
             if self.get_dct_qtb:
-                jpg = jpegio.read(img_path)
-                dct = jpg.coef_arrays[0].copy()
-                qtb = jpg.quant_tables[0].copy()
+                if  mime == "image/jpeg":
+                    jpg = jpegio.read(img_path)
+                    dct = jpg.coef_arrays[0].copy()
+                    qtb = jpg.quant_tables[0].copy()
+                else:
+                    # Créer un fichier temporaire JPEG
+                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
+                        tmp_path = tmp.name
+
+                        # Sauvegarder en JPEG qualité 100
+                        image.save(tmp_path, format="JPEG", quality=100, subsampling=0)
+
+                        # Recharger l'image compressée
+                        image = Image.open(tmp_path)
+
+                        # Lire avec jpegio pour récupérer DCT et QTB
+                        jpg = jpegio.read(tmp_path)
+                        dct = jpg.coef_arrays[0].copy()
+                        qtb = jpg.quant_tables[0].copy()
         else:
             if self.get_dct_qtb:
-                jpg = jpegio.read(img_path)
-                dct = jpg.coef_arrays[0].copy()
-                qtb = jpg.quant_tables[0].copy()
+                if  mime == "image/jpeg":
+                    jpg = jpegio.read(img_path)
+                    dct = jpg.coef_arrays[0].copy()
+                    qtb = jpg.quant_tables[0].copy()
+                    # Créer un fichier temporaire JPEG
+                else:
+                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
+                        tmp_path = tmp.name
+
+                        # Sauvegarder en JPEG qualité 100
+                        image.save(tmp_path, format="JPEG", quality=100, subsampling=0)
+
+                        # Recharger l'image compressée
+                        image = Image.open(tmp_path)
+
+                        # Lire avec jpegio pour récupérer DCT et QTB
+                        jpg = jpegio.read(tmp_path)
+                        dct = jpg.coef_arrays[0].copy()
+                        qtb = jpg.quant_tables[0].copy()
         image = np.array(image)
         if self.common_transform:
             output = self.common_transform(image=image, mask=mask)

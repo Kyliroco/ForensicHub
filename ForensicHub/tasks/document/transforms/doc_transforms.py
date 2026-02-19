@@ -9,14 +9,16 @@ from ForensicHub.common.transforms import PillowJpegCompression
 class DocTransform(BaseTransform):
     """Transform class for Doc tasks."""
 
-    def __init__(self,luminance_path,chrominance_path, output_size: tuple = (512, 512), norm_type='image_net',compression_type="cv"):
+    def __init__(self,luminance_path="",chrominance_path="", output_size: tuple = (512, 512), norm_type='image_net',compression_type="cv"):
         super().__init__()
         self.output_size = output_size
         self.norm_type = norm_type
         self.compression_type = compression_type
-        self.matrice_luminance = self._load_quantization_tables(luminance_path)
-        self.matrice_chrominance = self._load_quantization_tables(chrominance_path)
-
+        try:
+            self.matrice_luminance = self._load_quantization_tables(luminance_path)
+            self.matrice_chrominance = self._load_quantization_tables(chrominance_path)
+        except:
+            pass
 
     def _load_quantization_tables(self, file_path: str) -> List:
         """Charge les tables de quantification depuis un fichier pickle.
@@ -59,10 +61,6 @@ class DocTransform(BaseTransform):
         """Get training transforms."""
         if self.compression_type == "cv":
             return albu.Compose([
-                albu.RandomCrop(
-                    height=512,
-                    width=512
-                ),
                 # Flips
                 albu.HorizontalFlip(p=0.5),
                 albu.VerticalFlip(p=0.5),
@@ -74,8 +72,8 @@ class DocTransform(BaseTransform):
                     p=1
                 ),
                 albu.ImageCompression(
-                    quality_range=(75,100),
-                    p=0.2
+                    quality_range=(30,100),
+                    p=1
                 ),
                 # Rotate
                 albu.RandomRotate90(p=0.5),
@@ -87,10 +85,6 @@ class DocTransform(BaseTransform):
             ])
         elif self.compression_type == "pillow":
             return albu.Compose([
-                albu.RandomCrop(
-                    height=512,
-                    width=512
-                ),
                 # Flips
                 albu.HorizontalFlip(p=0.5),
                 albu.VerticalFlip(p=0.5),
@@ -99,11 +93,6 @@ class DocTransform(BaseTransform):
                     brightness_limit=(-0.1, 0.1),
                     contrast_limit=0.1,
                     p=1
-                ),
-                PillowJpegCompression(
-                    luma_tables=self.matrice_luminance,   # tirage aléatoire parmi ces 2
-                    chroma_tables=self.matrice_chrominance,          # toujours celle-ci
-                    p=0.2,
                 ),
                 # Rotate
                 albu.RandomRotate90(p=0.5),
@@ -119,8 +108,4 @@ class DocTransform(BaseTransform):
     def get_test_transform(self) -> albu.Compose:
         """Get testing transforms."""
         return albu.Compose([
-            albu.RandomCrop(
-                    height=512,
-                    width=512
-                ),
         ])
