@@ -4,7 +4,7 @@ import albumentations as albu
 from albumentations.pytorch import ToTensorV2
 from ForensicHub.core.base_transform import BaseTransform
 from ForensicHub.registry import register_transform
-from ForensicHub.common.transforms import PillowJpegCompression
+from ForensicHub.common.transforms import PillowJpegCompression, JpegCompressionWithDCT
 @register_transform("DocTransform")
 class DocTransform(BaseTransform):
     """Transform class for Doc tasks."""
@@ -60,21 +60,21 @@ class DocTransform(BaseTransform):
     def get_train_transform(self) -> albu.Compose:
         """Get training transforms."""
         if self.compression_type == "cv":
+            self.jpeg_compression = JpegCompressionWithDCT(
+                quality_range=(30, 100),
+                p=1.0,
+            )
             return albu.Compose([
                 # Flips
                 albu.HorizontalFlip(p=0.5),
                 albu.VerticalFlip(p=0.5),
                 # Brightness and contrast fluctuation
-                
                 albu.RandomBrightnessContrast(
                     brightness_limit=(-0.1, 0.1),
                     contrast_limit=0.1,
                     p=1
                 ),
-                albu.ImageCompression(
-                    quality_range=(30,100),
-                    p=1
-                ),
+                self.jpeg_compression,
                 # Rotate
                 albu.RandomRotate90(p=0.5),
                 # Blur
@@ -84,6 +84,11 @@ class DocTransform(BaseTransform):
                 )
             ])
         elif self.compression_type == "pillow":
+            self.jpeg_compression = PillowJpegCompression(
+                luma_tables=self.matrice_luminance,
+                chroma_tables=self.matrice_chrominance,
+                p=1.0,
+            )
             return albu.Compose([
                 # Flips
                 albu.HorizontalFlip(p=0.5),
@@ -94,6 +99,7 @@ class DocTransform(BaseTransform):
                     contrast_limit=0.1,
                     p=1
                 ),
+                self.jpeg_compression,
                 # Rotate
                 albu.RandomRotate90(p=0.5),
                 # Blur
