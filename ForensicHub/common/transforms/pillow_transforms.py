@@ -96,10 +96,9 @@ class PillowJpegCompression(ImageOnlyTransform):
         self,
         luma_tables: list,
         chroma_tables: list,
-        always_apply: bool = False,
         p: float = 0.5,
     ):
-        super().__init__(always_apply, p)
+        super().__init__(p)
 
         if not luma_tables:
             raise ValueError("luma_tables must be a non-empty list of quantization tables.")
@@ -199,10 +198,9 @@ class JpegCompressionWithDCT(ImageOnlyTransform):
     def __init__(
         self,
         quality_range: tuple = (30, 100),
-        always_apply: bool = False,
         p: float = 1.0,
     ):
-        super().__init__(always_apply, p)
+        super().__init__(p)
         self.quality_range = quality_range
         self._last_dct = None
         self._last_qtb = None
