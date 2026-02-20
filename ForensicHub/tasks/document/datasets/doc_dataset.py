@@ -146,7 +146,7 @@ class DocDataset(BaseDataset):
         if self.post_transform:
             image = self.post_transform(image=image)['image']
         if self.get_dct_qtb:
-            return {'image': image, 'mask': mask, 'label': label, 'dct': np.clip(np.abs(dct), 0, 20), 'qt': qtb}
+            return {'image': image, 'mask': mask, 'label': label, 'dct': np.clip(np.abs(dct), 0, 20), 'qt': np.clip(np.abs(qtb), 0, 63)}
         else:
             return {'image': image, 'mask': mask, 'label': label}
 
