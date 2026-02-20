@@ -1,4 +1,4 @@
-albumentations==1.3.0
+albumentations
 appdirs
 colorama
 efficientnet_pytorch
@@ -6,7 +6,7 @@ einops
 ftfy
 grad_cam
 imageio
-IMDLBenCo
+imdlbenco13==0.2.2
 imutils
 jpegio
 kmeans_pytorch
@@ -22,7 +22,7 @@ Requests
 rich
 scikit_learn
 segmentation_models_pytorch
-setuptools
+setuptools<80
 six
 tensorflow
 timm
@@ -30,3 +30,4 @@ torchvision
 tqdm
 ttach
 yacs
+python-magic
