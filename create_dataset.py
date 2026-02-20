@@ -223,8 +223,6 @@ def process_dataset(spec: DatasetSpec, args, rng_seed: int):
 
     pool = keys[:]
     rng.shuffle(pool)
-    if len(pool) > spec.max_total:
-        pool = pool[: spec.max_total]
     n_pool = len(pool)
 
     k_train = int(math.floor(n_pool * (spec.train_percent / 100.0)))
@@ -237,24 +235,31 @@ def process_dataset(spec: DatasetSpec, args, rng_seed: int):
     test_keys = pool[k_train : k_train + k_test]
     ignored = pool[k_train + k_test :]
 
-    print(
-        f"[{spec.name}] mode={mode} eligible={len(keys)} "
-        f"pool={n_pool} (max={spec.max_total}) "
-        f"train={len(train_keys)} test={len(test_keys)} ignored={len(ignored)}"
-    )
-
+    len_train = 0
     for group in train_keys:
+        len_train += len(img_groups[group])
+        if len_train > spec.max_total:
+            len_train -= len(img_groups[group])
+            break
         for stem in img_groups[group]:
             total_links_train += link_one(
                 args.out_train, spec.name, stem, imgs, msks, args.dry_run, train_flat=True
             )
-
+    len_test = 0
     for group in test_keys:
+        len_test += len(img_groups[group])
+        if len_test > spec.max_total:
+            len_test -= len(img_groups[group])
+            break
         for stem in img_groups[group]:
             total_links_test += link_one(
                 args.out_test, spec.name, stem, imgs, msks, args.dry_run, train_flat=False
             )
-
+    print(
+        f"[{spec.name}] mode={mode} eligible={len(keys)} "
+        f"pool={n_pool} (max={spec.max_total}) "
+        f"train={len_train} test={len_test} ignored={len(ignored)}"
+    )  
     return total_links_train, total_links_test
 
 def main() -> None:
