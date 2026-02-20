@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools<80.0","wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ForensicHub13"
-dynamic = ["version"]
+version = "0.0.1"
 description = "A codebase integrated Image manipulation detection & localization, Deepfake detection, Document manipulation detection and AIGC detection."
 readme = "README.md"
 requires-python = ">=3.9,<3.14"
@@ -55,7 +55,6 @@ dependencies = [
     "lmdb",
     "matplotlib",
     "numpy",
-    "opencv_python",
     "opencv_python_headless",
     "pillow",
     "pytorch_wavelets",
@@ -76,7 +75,10 @@ dependencies = [
     "loralib",
     "transformers",
     "dlib",
-    "imgaug"
+    "imgaug",
+    "python-magic",
+    "tensorboard>=2.20.0",
+    "setuptools<80"
 ]
 [project.optional-dependencies]
 mlops = [
@@ -95,6 +97,8 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["ForensicHub*"]
+exclude = ["data*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "ForensicHub.version.__version__" }
