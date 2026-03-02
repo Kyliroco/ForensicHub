@@ -5,6 +5,7 @@ import argparse
 import datetime
 import numpy as np
 from pathlib import Path
+import torch
 import timm.optim as optim_factory
 from torch.utils.tensorboard import SummaryWriter
 
@@ -93,7 +94,12 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
             "common_transform": test_transform,
             "post_transform": post_transform
         })
-        test_dataset_list[test_args["dataset_name"]] = build_from_registry(DATASETS, test_args)
+        dataset = build_from_registry(DATASETS, test_args)
+        max_images = test_args.get("max_images", None)
+        if max_images is not None:
+            indices = list(range(min(int(max_images), len(dataset))))
+            dataset = torch.utils.data.Subset(dataset, indices)
+        test_dataset_list[test_args["dataset_name"]] = dataset
     for t_args, dataset in zip(test_dataset_args, test_dataset_list.values()):
         print(f"Test dataset: {t_args['dataset_name']}\n{str(dataset)}\n")
 

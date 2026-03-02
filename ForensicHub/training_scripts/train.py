@@ -132,9 +132,12 @@ def main(
                 "post_transform": post_transform,
             }
         )
-        test_dataset_list[test_args["dataset_name"]] = build_from_registry(
-            DATASETS, test_args
-        )
+        dataset = build_from_registry(DATASETS, test_args)
+        max_images = test_args.get("max_images", None)
+        if max_images is not None:
+            indices = list(range(min(int(max_images), len(dataset))))
+            dataset = torch.utils.data.Subset(dataset, indices)
+        test_dataset_list[test_args["dataset_name"]] = dataset
 
     print(f"Train dataset: {train_dataset_args['dataset_name']}.")
     print(len(train_dataset))
