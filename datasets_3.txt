@@ -1,4 +1,0 @@
-# name;root;percent
-TrainingSet;/home/59435a/data_registry/data_process_out/doctamper_trainingset;100
-TrainingSet_recompress;/home/59435a/data_registry/data_process_out/doctamper_trainingset_recompress;100
-
