@@ -1,1 +1,0 @@
-python create_dataset.py --config datasets.txt --out data/big_dataset --seed 42 --out-rest data/big_test
