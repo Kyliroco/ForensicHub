@@ -22,25 +22,29 @@ train_dataset:
   name: DocDataset
   dataset_name: DocTamperData_train
   init_config:
-    path: /home/59435a/Forensic_hub/data/Doctamper/TrainingSet
+    path: /home/59435a/data_registry/data_process_out/doctamper_trainingset
+    get_dct_qtb: True
 #  Test dataset (one or many)
 test_dataset:
   - name: DocDataset
     dataset_name: DocTamperData_test
     init_config:
-      path: /home/59435a/Forensic_hub/data/Doctamper/TestingSet
+      path: /home/59435a/data_registry/data_process_out/doctamper_testingset
+      get_dct_qtb: True
   - name: DocDataset
     dataset_name: DocTamperData_scd
     init_config:
-      path: /home/59435a/Forensic_hub/data/Doctamper/SCD
+      path: /home/59435a/data_registry/data_process_out/scd
+      get_dct_qtb: True
   - name: DocDataset
     dataset_name: DocTamperData_fcd
     init_config:
-      path: /home/59435a/Forensic_hub/data/Doctamper/FCD
+      path: /home/59435a/data_registry/data_process_out/fcd
+      get_dct_qtb: True
 
 # Transform
 transform:
-  name: AIGCTransform
+  name: DocTransform
   init_config:
     norm_type: image_net
 
@@ -52,11 +56,14 @@ evaluator:
   - name: PixelIOU
     init_config:
       threshold: 0.5
+  - name: PixelF1
+    init_config:
+      threshold: 0.5
 
 # Training related
-batch_size: 6 # doit être plus petit que la taille du dataset quand il est multiplié par le nombre de processus
-test_batch_size: 6
-epochs: 20
+batch_size: 10 # doit être plus petit que la taille du dataset quand il est multiplié par le nombre de processus
+test_batch_size: 10
+epochs: 100
 accum_iter: 1
 record_epoch: 1  # Save the best only after record epoch.
 
@@ -81,8 +88,8 @@ warmup_epochs: 1
 # Device and training control
 device: "cuda"
 seed: 42
-resume: "/home/59435a/Forensic_hub/ForensicHub/log/trufor_iou_train/checkpoint-5.pth"
-start_epoch: 6
+resume: ""
+start_epoch: 0
 num_workers: 8
 pin_mem: true
 

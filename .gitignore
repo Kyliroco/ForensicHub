@@ -1,10 +1,6 @@
-/SCD
-data/
+data
 **__pycache__**
 .envrc
-/FCD
-/TrainingSet
-/TestingSet
 build
 .dvc/config.local
 DeepfakeBench

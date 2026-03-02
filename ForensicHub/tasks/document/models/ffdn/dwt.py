@@ -40,7 +40,7 @@ class DWTNeck(nn.Module):
         f2 = self.T2(inputs[1])
         f3 = self.T3(inputs[2])
         f4 = self.T4(inputs[3])
-
+        # Erreur à cette endroit précis
         wf1 = self.DWT(f1)
         wf2 = self.DWT(f2)
         wf3 = self.DWT(f3)

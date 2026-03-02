@@ -303,8 +303,15 @@ class NativeScalerWithGradNormCount:
                 print(f"[Warning] Another rank detected NaN/Inf loss, skipping batch to stay synchronized")
             self._nan_skip_count += 1
             self._last_nan_skipped = True
-            optimizer.zero_grad()
-            # Free memory from the forward pass computation graph
+            # Run backward even on NaN loss to free the computational graph's
+            # saved tensors. This is the only reliable way to release the
+            # intermediate activations from the forward pass. The resulting
+            # NaN gradients are immediately cleared by zero_grad.
+            try:
+                loss.backward()
+            except RuntimeError:
+                pass
+            optimizer.zero_grad(set_to_none=True)
             del loss
             torch.cuda.empty_cache()
             return torch.tensor(0.0, device='cpu')

@@ -114,15 +114,27 @@ def main(
         post_function = None
     print(post_function)
 
-    train_dataset_args["init_config"].update(
-        {
-            "post_funcs": post_function,
-            "common_transform": train_transform,
-            "post_transform": post_transform,
-        }
-    )
-    train_dataset = build_from_registry(DATASETS, train_dataset_args)
-
+    if isinstance(train_dataset_args, list):
+        _datasets = []
+        for t_args in train_dataset_args:
+            t_args["init_config"].update(
+                {
+                    "post_funcs": post_function,
+                    "common_transform": train_transform,
+                    "post_transform": post_transform,
+                }
+            )
+            _datasets.append(build_from_registry(DATASETS, t_args))
+        train_dataset = torch.utils.data.ConcatDataset(_datasets)
+    else:
+        train_dataset_args["init_config"].update(
+            {
+                "post_funcs": post_function,
+                "common_transform": train_transform,
+                "post_transform": post_transform,
+            }
+        )
+        train_dataset = build_from_registry(DATASETS, train_dataset_args)
     test_dataset_list = {}
     for test_args in test_dataset_args:
         test_args["init_config"].update(
@@ -132,11 +144,17 @@ def main(
                 "post_transform": post_transform,
             }
         )
-        test_dataset_list[test_args["dataset_name"]] = build_from_registry(
-            DATASETS, test_args
-        )
+        dataset = build_from_registry(DATASETS, test_args)
+        max_images = test_args.get("max_images", None)
+        if max_images is not None:
+            indices = list(range(min(int(max_images), len(dataset))))
+            dataset = torch.utils.data.Subset(dataset, indices)
+        test_dataset_list[test_args["dataset_name"]] = dataset
 
-    print(f"Train dataset: {train_dataset_args['dataset_name']}.")
+    if isinstance(train_dataset_args, list):
+        print(f"Train dataset: {[a['dataset_name'] for a in train_dataset_args]}.")
+    else:
+        print(f"Train dataset: {train_dataset_args['dataset_name']}.")
     print(len(train_dataset))
     print(str(train_dataset))
     print(f"Test dataset: {[args['dataset_name'] for args in test_dataset_args]}.")
