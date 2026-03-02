@@ -9,7 +9,7 @@ from ForensicHub.common.transforms import PillowJpegCompression, JpegCompression
 class DocTransform(BaseTransform):
     """Transform class for Doc tasks."""
 
-    def __init__(self,luminance_path="",chrominance_path="", output_size: tuple = (512, 512), norm_type='image_net',compression_type="cv"):
+    def __init__(self,luminance_path="",chrominance_path="", output_size: tuple = (512, 512), norm_type='image_net',compression_type=""):
         super().__init__()
         self.output_size = output_size
         self.norm_type = norm_type
@@ -94,5 +94,35 @@ class DocTransform(BaseTransform):
 
     def get_test_transform(self) -> albu.Compose:
         """Get testing transforms."""
+        if self.compression_type == "cv":
+            jpeg_compression = JpegCompressionWithDCT(
+                quality_range=(30, 100),
+                p=1.0,
+            )
+        elif self.compression_type == "pillow":
+            jpeg_compression = PillowJpegCompression(
+                luma_tables=self.matrice_luminance,
+                chroma_tables=self.matrice_chrominance,
+                p=1.0,
+            ) 
+        else:
+            return albu.Compose([])
         return albu.Compose([
+            # Flips
+            albu.HorizontalFlip(p=0.5),
+            albu.VerticalFlip(p=0.5),
+            # Brightness and contrast fluctuation
+            albu.RandomBrightnessContrast(
+                brightness_limit=(-0.1, 0.1),
+                contrast_limit=0.1,
+                p=1
+            ),
+            jpeg_compression,
+            # Rotate
+            albu.RandomRotate90(p=0.5),
+            # Blur
+            albu.GaussianBlur(
+                blur_limit=(3, 7),
+                p=0.2
+            )
         ])
