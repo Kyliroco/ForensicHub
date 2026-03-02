@@ -1,0 +1,8 @@
+[core]
+    autostage = true
+    remote = s3
+['remote "s3"']
+    url = s3://apiirregularites-build-alteration-documentaire/POC_ci_cd
+    endpointurl = https://s3-niort.maif.local:443
+    use_ssl = true
+    no_traverse = true

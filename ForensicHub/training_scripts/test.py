@@ -5,7 +5,7 @@ import argparse
 import datetime
 import numpy as np
 from pathlib import Path
-import timm.optim.optim_factory as optim_factory
+import timm.optim as optim_factory
 from torch.utils.tensorboard import SummaryWriter
 
 import ForensicHub.training_scripts.utils.misc as misc
