@@ -9,7 +9,7 @@ from .fph import FPH
 from .backbone_swin import SwinTransformerV2
 from .backbone_convnext import ConvNeXt
 import torch.nn.functional as F
-from timm.models.layers import trunc_normal_, DropPath
+from timm.layers import trunc_normal_, DropPath
 from functools import partial
 from typing import Optional, Union, List, Dict, Any
 

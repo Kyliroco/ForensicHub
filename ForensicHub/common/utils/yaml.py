@@ -54,7 +54,11 @@ def split_config(config):
     for x in test_dataset_args:
         if "init_config" not in x:
             x["init_config"] = {}
-    if "init_config" not in train_dataset_args:
+    if isinstance(train_dataset_args, list):
+        for x in train_dataset_args:
+            if "init_config" not in x:
+                x["init_config"] = {}
+    elif "init_config" not in train_dataset_args:
         train_dataset_args["init_config"] = {}
     if "init_config" not in transform_args:
         transform_args["init_config"] = {}

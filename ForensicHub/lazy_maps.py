@@ -20,16 +20,33 @@ def get_all_lazy_maps():
     return model_map, postfunc_map
 
 
+def is_deepfakebench_available():
+    """Check if DeepfakeBench is installed."""
+    try:
+        from ForensicHub.tasks.deepfake import DEEPFAKEBENCH_AVAILABLE
+        return DEEPFAKEBENCH_AVAILABLE
+    except ImportError:
+        return False
+
+
 def _wrap_deepfake_if_needed(cls, name):
     """如果是 deepfake 模型，则包一层 Wrapper"""
     from ForensicHub.tasks.deepfake import _lazy_model_map as _deepfake_model_map
     from ForensicHub.tasks.deepfake import _lazy_postfunc_map as _deepfake_postfunc_map
-    from ForensicHub.tasks.deepfake.wrapper.wrappers import Deepfake2ForensicWrapper
-    from DeepfakeBench.training import detectors
 
     flag = False
 
     if name in _deepfake_model_map:
+        # Check if DeepfakeBench is available
+        if not is_deepfakebench_available():
+            raise ImportError(
+                f"Model '{name}' requires DeepfakeBench which is not installed. "
+                "Please install DeepfakeBench to use this model."
+            )
+
+        from ForensicHub.tasks.deepfake.wrapper.wrappers import Deepfake2ForensicWrapper
+        from DeepfakeBench.training import detectors
+
         flag = True
         cls = getattr(detectors, name)
 

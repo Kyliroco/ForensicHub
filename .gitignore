@@ -1,7 +1,12 @@
-/SCD
-data/
+data
 **__pycache__**
 .envrc
-/FCD
-/TrainingSet
-/TestingSet
+build
+.dvc/config.local
+DeepfakeBench
+ForensicHub/log
+forensichub.egg-info
+weight/**.pth
+weight/**.th
+.venv
+ForensicHub13.egg-info

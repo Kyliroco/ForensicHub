@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+from torch.amp import autocast
 
 from ForensicHub.registry import MODELS, build_from_registry, register_model
 from ForensicHub.core.base_model import BaseModel
@@ -35,6 +36,10 @@ class Mask2LabelWrapper(BaseModel):
             if self.name == 'Cat_Net':
                 features = self.base_model.forward_features(image=image, mask=mask, edge_mask=edge_mask, label=label,
                                                             DCT_coef=kwargs['DCT_coef'], qtables=kwargs['qtables'])
+            elif self.name == 'Mesorch':
+                # Disable autocast for Mesorch because DCT matrix operations don't support fp16
+                with autocast(device_type='cuda', enabled=False):
+                    features = self.base_model.forward_features(image=image.float(), mask=mask, edge_mask=edge_mask, label=label)
             else:
                 features = self.base_model.forward_features(image=image, mask=mask, edge_mask=edge_mask, label=label)
             if type(features) == tuple:
@@ -47,15 +52,26 @@ class Mask2LabelWrapper(BaseModel):
             loss = self.loss_fn(pred_label, label.float())
             pred_label = F.sigmoid(pred_label)
         elif self.name in ['DTD', 'FFDN']:
-            out_dict = self.base_model(image=image, mask=mask, dct=kwargs['dct'], qt=kwargs['qt'])
-            pred_label = self.head(out_dict['pred_mask'][:, 0:1, :, :])
+            outputs = self.base_model(image=image, mask=mask, dct=kwargs['dct'], qt=kwargs['qt'])
+            pred_label = self.head(outputs['pred_mask'][:, 0:1, :, :])
             pred_label = pred_label.view(-1)
             loss = F.binary_cross_entropy(pred_label, label)
         else:
             outputs = self.base_model(image=image, mask=mask, edge_mask=edge_mask, label=label)
             pred_label = outputs['pred_label']
-            loss = F.binary_cross_entropy(pred_label, label.float())
+            pred_label = pred_label.view(-1)
+            # loss = F.binary_cross_entropy(pred_label, label.float())
+            loss = self.loss_fn(pred_label,label.float())
         # ----------Output interface--------------------------------------
+        # output_dict = {
+        #     "pred_mask":outputs["pred_mask"],
+        #     "visual_image":outputs["visual_image"],
+        #     "backward_loss": loss,
+        #     "pred_label": pred_label,
+        #     "visual_loss": {
+        #         'pred_loss': loss
+        #     }
+        # }
         output_dict = {
             "backward_loss": loss,
             "pred_label": pred_label,
@@ -63,4 +79,8 @@ class Mask2LabelWrapper(BaseModel):
                 'pred_loss': loss
             }
         }
+        try:
+            output_dict["pred_mask"] = outputs["pred_mask"]
+        except:
+            pass
         return output_dict

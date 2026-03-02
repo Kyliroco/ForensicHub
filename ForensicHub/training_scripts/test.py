@@ -4,6 +4,7 @@ import time
 import argparse
 import datetime
 import numpy as np
+import torch
 from pathlib import Path
 import timm.optim.optim_factory as optim_factory
 from torch.utils.tensorboard import SummaryWriter
@@ -93,7 +94,12 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
             "common_transform": test_transform,
             "post_transform": post_transform
         })
-        test_dataset_list[test_args["dataset_name"]] = build_from_registry(DATASETS, test_args)
+        dataset = build_from_registry(DATASETS, test_args)
+        max_images = test_args.get("max_images", None)
+        if max_images is not None:
+            indices = list(range(min(int(max_images), len(dataset))))
+            dataset = torch.utils.data.Subset(dataset, indices)
+        test_dataset_list[test_args["dataset_name"]] = dataset
     for t_args, dataset in zip(test_dataset_args, test_dataset_list.values()):
         print(f"Test dataset: {t_args['dataset_name']}\n{str(dataset)}\n")
 
@@ -141,11 +147,12 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
         if chkpt_dir.endswith(".pth"):
             print("Loading checkpoint: %s" % chkpt_dir)
             ckpt = os.path.join(args.checkpoint_path, chkpt_dir)
-            ckpt = torch.load(ckpt, map_location='cuda')
+            ckpt = torch.load(ckpt, map_location='cuda',weights_only=False)
             model.module.load_state_dict(ckpt['model'])
 
             for dataset_name, dataloader_test in dataset_dict.items():
                 print("Testing on dataset: %s" % dataset_name)
+                args.full_log_dir = os.path.join(args.log_dir, dataset_name)
                 test_stats = test_one_epoch(
                     model=model,
                     data_loader=dataloader_test,
@@ -158,7 +165,8 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
                 )
                 log_stats = {
                     **{f'test_{k}': v for k, v in test_stats.items()},
-                    'epoch': epoch
+                    'epoch': epoch,
+                    'dataset': dataset_name
                 }
                 if args.full_log_dir and misc.is_main_process():
                     if dataset_logger[dataset_name] is not None:

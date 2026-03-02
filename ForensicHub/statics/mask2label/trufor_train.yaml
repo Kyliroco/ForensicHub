@@ -1,57 +1,71 @@
 # DDP
-gpus: "0,1,2,3"
+gpus: "0,1"
 flag: train
 
 # Log
-log_dir: "./log/mask2label_trufor_df_train"
+log_dir: "./log/trufor_iou_train"
 
 # Task
-if_predict_label: true
-if_predict_mask: false
+if_predict_label: false
+if_predict_mask: true
 
 # Model
 model:
-  name: Mask2LabelWrapper
+  name: Trufor
   init_config:
-    name: Trufor
-    init_config:
-      np_pretrain_weights: /mnt/data1/xuekang/workspace/IMDLBenCotest/noiseprint.pth
-      mit_b2_pretrain_weights: /mnt/data1/xuekang/workspace/IMDLBenCotest/mit_b2.pth
-      config_path: /mnt/data1/xuekang/workspace/IMDLBenCotest/trufor.yaml
+    np_pretrain_weights: /home/59435a/Forensic_hub/weight/noiseprint++.th
+    mit_b2_pretrain_weights: /home/59435a/Forensic_hub/weight/mit_b2.pth
+    config_path: /home/59435a/Forensic_hub/weight/trufor.yaml
 
 # Train dataset
 train_dataset:
-  name: AIGCLabelDataset
-  dataset_name: DiffusionForensics_train
+  name: DocDataset
+  dataset_name: DocTamperData_train
   init_config:
-    image_size: 224
-    path: /mnt/data1/public_datasets/AIGC/DiffusionForensics/images/train.json
+    path: /home/59435a/data_registry/data_process_out/doctamper_trainingset
+    get_dct_qtb: True
 #  Test dataset (one or many)
 test_dataset:
-  - name: AIGCLabelDataset
-    dataset_name: DiffusionForensics_test
+  - name: DocDataset
+    dataset_name: DocTamperData_test
     init_config:
-      image_size: 224
-      path: /mnt/data1/public_datasets/AIGC/DiffusionForensics/images/test.json
+      path: /home/59435a/data_registry/data_process_out/doctamper_testingset
+      get_dct_qtb: True
+  - name: DocDataset
+    dataset_name: DocTamperData_scd
+    init_config:
+      path: /home/59435a/data_registry/data_process_out/scd
+      get_dct_qtb: True
+  - name: DocDataset
+    dataset_name: DocTamperData_fcd
+    init_config:
+      path: /home/59435a/data_registry/data_process_out/fcd
+      get_dct_qtb: True
 
 # Transform
 transform:
-  name: AIGCTransform
+  name: DocTransform
   init_config:
     norm_type: image_net
 
 # Evaluators
 evaluator:
-  - name: ImageF1
+  # - name: ImageF1
+  #   init_config:
+  #     threshold: 0.5
+  - name: PixelIOU
+    init_config:
+      threshold: 0.5
+  - name: PixelF1
     init_config:
       threshold: 0.5
 
 # Training related
-batch_size: 64
-test_batch_size: 32
-epochs: 20
+batch_size: 10 # doit être plus petit que la taille du dataset quand il est multiplié par le nombre de processus
+test_batch_size: 10
+epochs: 100
 accum_iter: 1
-record_epoch: 0  # Save the best only after record epoch.
+record_epoch: 1  # Save the best only after record epoch.
 
 # Test related
 no_model_eval: false
@@ -66,9 +80,9 @@ use_amp: false
 
 # Optimizer parameters
 weight_decay: 0.05
-lr: 0.0001
-blr: 0.001
-min_lr: 0.00001
+lr: 0.01
+blr: 0.1
+min_lr: 0.001
 warmup_epochs: 1
 
 # Device and training control
@@ -80,8 +94,8 @@ num_workers: 8
 pin_mem: true
 
 # Distributed training parameters
-world_size: 1
-local_rank: -1
+# world_size: 1
+# local_rank: -1
 dist_on_itp: false
 dist_url: "env://"
 
