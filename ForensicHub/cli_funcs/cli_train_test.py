@@ -2,6 +2,7 @@
 import os
 import sys
 import re
+import socket
 import yaml
 import subprocess
 from colorama import init, Fore, Style
@@ -61,6 +62,14 @@ def check_config_dict(config):
         print(Fore.RED + "  The config file must contain 'flag'." + Style.RESET_ALL)
         return False
     return True
+
+def find_free_port():
+    """Find a free port on localhost to avoid conflicts between multiple instances."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+
 
 def excute_script(yaml_path, script_path):
     # Read the YAML file
@@ -124,15 +133,17 @@ def excute_script(yaml_path, script_path):
     # mkdir in base_dir
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
-    cmd = cmd = [
-    "torchrun",
-    "--standalone",
-    "--nnodes=1",
-    f"--nproc_per_node={gpu_count}",
-    script_path,
-    "--config",
-    yaml_path
-]
+    master_port = find_free_port()
+    cmd = [
+        "torchrun",
+        "--standalone",
+        "--nnodes=1",
+        f"--nproc_per_node={gpu_count}",
+        f"--master_port={master_port}",
+        script_path,
+        "--config",
+        yaml_path
+    ]
     print(cmd)
     # output error file and log file
     error_file = os.path.join(base_dir, 'error.log')
