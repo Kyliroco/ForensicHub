@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import time
 import argparse
 import datetime
@@ -122,6 +123,11 @@ def main(
         }
     )
     train_dataset = build_from_registry(DATASETS, train_dataset_args)
+    dataset_percentage = getattr(args, 'dataset_percentage', None)
+    if dataset_percentage is not None and dataset_percentage < 100:
+        n_train = max(1, math.ceil(len(train_dataset) * dataset_percentage / 100))
+        train_dataset = torch.utils.data.Subset(train_dataset, list(range(n_train)))
+        print(f"dataset_percentage={dataset_percentage}%: using {n_train} train samples.")
 
     test_dataset_list = {}
     for test_args in test_dataset_args:
@@ -132,9 +138,12 @@ def main(
                 "post_transform": post_transform,
             }
         )
-        test_dataset_list[test_args["dataset_name"]] = build_from_registry(
-            DATASETS, test_args
-        )
+        test_ds = build_from_registry(DATASETS, test_args)
+        if dataset_percentage is not None and dataset_percentage < 100:
+            n_test = max(1, math.ceil(len(test_ds) * dataset_percentage / 100))
+            test_ds = torch.utils.data.Subset(test_ds, list(range(n_test)))
+            print(f"dataset_percentage={dataset_percentage}%: using {n_test} samples for {test_args['dataset_name']}.")
+        test_dataset_list[test_args["dataset_name"]] = test_ds
 
     print(f"Train dataset: {train_dataset_args['dataset_name']}.")
     print(len(train_dataset))
