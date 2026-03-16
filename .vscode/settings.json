@@ -1,5 +1,13 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:venv",
-    "python-envs.defaultPackageManager": "ms-python.python:pip",
-    "git.ignoreLimitWarning": true
+    "python-envs.workspaceSearchPaths": [
+        "./.venv"
+    ],
+    "python.defaultInterpreterPath": "/home/59435a/Forensic_hub/.venv/bin/python",
+    "files.watcherExclude": {
+        "**/data/**": true,
+        "**/*.jpg": true,
+        "**/*.png": true,
+        "**/*.tif": true,
+        "**/*.npy": true
+    }
 }
