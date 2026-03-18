@@ -56,11 +56,24 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
     # Init model with registry
     model = build_from_registry(MODELS, model_args)
 
-    # Init evaluators
+    # Init global (default) evaluators
     evaluator_list = []
     for eva_args in evaluator_args:
         evaluator_list.append(build_from_registry(EVALUATORS, eva_args))
-    print(f"Evaluators: {evaluator_list}")
+    print(f"Global evaluators: {evaluator_list}")
+
+    # Init per-dataset evaluators (if specified in YAML, else fallback to global)
+    per_dataset_evaluators = {}
+    for test_args_item in test_dataset_args:
+        ds_name = test_args_item["dataset_name"]
+        if "evaluator" in test_args_item:
+            ds_evaluators = []
+            for eva_args_item in test_args_item["evaluator"]:
+                ds_evaluators.append(build_from_registry(EVALUATORS, eva_args_item))
+            per_dataset_evaluators[ds_name] = ds_evaluators
+            print(f"Evaluators for {ds_name}: {ds_evaluators}")
+        else:
+            per_dataset_evaluators[ds_name] = evaluator_list
 
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -166,12 +179,19 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
             model.module.load_state_dict(ckpt['model'])
 
             for dataset_name, dataloader_test in dataset_dict.items():
-                print("Testing on dataset: %s" % dataset_name)
+                # Use per-dataset evaluators if available, else global
+                ds_evaluator_list = per_dataset_evaluators.get(
+                    dataset_name, evaluator_list
+                )
+                print(
+                    "Testing on dataset: %s (evaluators: %s)"
+                    % (dataset_name, [e.name for e in ds_evaluator_list])
+                )
                 args.full_log_dir = os.path.join(args.log_dir, dataset_name)
                 test_stats = test_one_epoch(
                     model=model,
                     data_loader=dataloader_test,
-                    evaluator_list=evaluator_list,
+                    evaluator_list=ds_evaluator_list,
                     device=device,
                     epoch=epoch,
                     name="normal",
