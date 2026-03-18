@@ -10,4 +10,6 @@ from .backbones.vit import *
 from .backbones.densenet import *
 from .wrapper.mask2labelwrapper import Mask2LabelWrapper
 from .wrapper.crossdatasetwrapper import CrossDataset
+from .wrapper.sliding_window_wrapper import SlidingWindowWrapper
+from .wrapper.sliding_window_merge import merge_predictions, merge_batch_predictions
 from .transforms import PillowJpegCompression
