@@ -2,6 +2,7 @@ from typing import List, Tuple, Union, Optional, Dict, Any
 
 import numpy as np
 import torch
+from PIL import Image as PILImage
 from torch.utils.data import Dataset
 
 from ForensicHub.registry import register_dataset, build_from_registry, DATASETS
@@ -87,8 +88,23 @@ class SlidingWindowWrapper(Dataset):
     def _get_image_size(self, idx: int) -> Tuple[int, int]:
         """Récupère la taille (H, W) de l'image à l'index donné.
 
-        Charge l'item pour obtenir la shape de l'image.
+        Essaie d'abord de lire la taille depuis le fichier (header only)
+        pour éviter de déclencher tout le pipeline de transforms.
         """
+        # Fast path: lire la taille depuis le chemin du fichier
+        ds = self.dataset
+        if hasattr(ds, "images") and idx < len(ds.images):
+            entry = ds.images[idx]
+            img_path = entry[0] if isinstance(entry, (tuple, list)) else entry
+            if isinstance(img_path, str):
+                try:
+                    with PILImage.open(img_path) as im:
+                        w, h = im.size
+                    return h, w
+                except Exception:
+                    pass
+
+        # Fallback: charge l'item complet
         item = self.dataset[idx]
         image = item["image"]
 
@@ -160,14 +176,20 @@ class SlidingWindowWrapper(Dataset):
         stride_x = max(int(patch_width * (1 - self.overlapping)), 1)
         stride_y = max(int(patch_height * (1 - self.overlapping)), 1)
 
+        # Aligner les strides sur des multiples de 8 pour la cohérence DCT
+        stride_x = max((stride_x // 8) * 8, 8)
+        stride_y = max((stride_y // 8) * 8, 8)
+
         xs = list(range(0, max(width - patch_width, 0) + 1, stride_x))
         ys = list(range(0, max(height - patch_height, 0) + 1, stride_y))
 
-        # Garantir la couverture des bords
-        if xs[-1] != width - patch_width:
-            xs.append(width - patch_width)
-        if ys[-1] != height - patch_height:
-            ys.append(height - patch_height)
+        # Garantir la couverture des bords (aligné sur 8)
+        last_x = ((width - patch_width) // 8) * 8
+        last_y = ((height - patch_height) // 8) * 8
+        if xs[-1] != last_x:
+            xs.append(last_x)
+        if ys[-1] != last_y:
+            ys.append(last_y)
 
         return xs, ys
 
