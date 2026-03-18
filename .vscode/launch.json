@@ -12,7 +12,30 @@
                 "--nproc_per_node=1",
                 "training_scripts/train.py",
                 "--config",
-                "statics/doc/ffdn_train_25.yaml"
+                "statics/doc/ffdn_train_psccnet_one_head.yaml"
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0",
+                "PYTHONPATH":"/home/59435a/Forensic_hub",
+                "LD_LIBRARY_PATH":"",
+                "CUDA_LAUNCH_BLOCKING":"1"
+            },
+            "cwd": "${workspaceFolder}/ForensicHub",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Run ffdn_freeze",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "torch.distributed.run",
+            "args": [
+                "--standalone",
+                "--nnodes=1",
+                "--nproc_per_node=1",
+                "training_scripts/train.py",
+                "--config",
+                "statics/doc/ffdn_train_psccnet_freeze.yaml"
             ],
             "env": {
                 "CUDA_VISIBLE_DEVICES": "0",
@@ -35,7 +58,7 @@
                 "--nproc_per_node=4",
                 "training_scripts/train.py",
                 "--config",
-                "statics/doc/ffdn_train_25.yaml"
+                "statics/doc/ffdn_train.yaml"
             ],
             "env": {
                 "CUDA_VISIBLE_DEVICES": "0,1,2,3",
