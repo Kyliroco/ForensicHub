@@ -7,7 +7,7 @@ name = "ForensicHub13"
 version = "0.0.1"
 description = "A codebase integrated Image manipulation detection & localization, Deepfake detection, Document manipulation detection and AIGC detection."
 readme = "README.md"
-requires-python = ">=3.9,<3.14"
+requires-python = ">=3.10,<3.14"
 license = { text = "CC-BY-4.0" }
 
 authors = [
@@ -31,7 +31,6 @@ classifiers = [
     "Topic :: Security",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
