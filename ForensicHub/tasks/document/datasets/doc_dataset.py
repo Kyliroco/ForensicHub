@@ -90,6 +90,8 @@ class DocDataset(BaseDataset):
     def __getitem__(self, index):
         img_path, mask_path = self.images[index]
         image = Image.open(img_path)
+        if image.mode == "RGBA":
+            image = image.convert("RGB")
         h, w = image.size
         img_real_path = os.path.realpath(img_path)
         mime = magic.from_file(img_real_path, mime=True)
