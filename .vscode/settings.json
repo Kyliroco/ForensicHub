@@ -2,7 +2,7 @@
     "python-envs.workspaceSearchPaths": [
         "./.venv"
     ],
-    "python.defaultInterpreterPath": "/home/59435a/Forensic_hub/.venv/bin/python",
+    "python.defaultInterpreterPath": ".venv/bin/python",
     "files.watcherExclude": {
         "**/data/**": true,
         "**/*.jpg": true,
