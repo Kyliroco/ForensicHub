@@ -156,9 +156,9 @@ class SlidingWindowWrapper(Dataset):
         patch_width = min(self.patch_width, width)
         patch_height = min(self.patch_height, height)
 
-        # Calcul du stride (même formule que data_registry)
-        stride_x = max(patch_width // int(1 / self.overlapping), 1)
-        stride_y = max(patch_height // int(1 / self.overlapping), 1)
+        # Calcul du stride : stride = patch * (1 - overlap)
+        stride_x = max(int(patch_width * (1 - self.overlapping)), 1)
+        stride_y = max(int(patch_height * (1 - self.overlapping)), 1)
 
         xs = list(range(0, max(width - patch_width, 0) + 1, stride_x))
         ys = list(range(0, max(height - patch_height, 0) + 1, stride_y))
