@@ -135,6 +135,8 @@ class PillowJpegCompression(ImageOnlyTransform):
             shape as the input.
         """
         pil_img = Image.fromarray(img)
+        if pil_img.mode == "RGBA":
+            pil_img = pil_img.convert("RGB")
 
         # Pillow expects qtables as a dict: {component_index: table}
         # Component 0 → luminance (Y), component 1 → chrominance (Cb/Cr).
@@ -217,6 +219,8 @@ class JpegCompressionWithDCT(ImageOnlyTransform):
             same shape as the input.
         """
         pil_img = Image.fromarray(img)
+        if pil_img.mode == "RGBA":
+            pil_img = pil_img.convert("RGB")
 
         # --- ONE compression into memory ---
         buffer = BytesIO()
