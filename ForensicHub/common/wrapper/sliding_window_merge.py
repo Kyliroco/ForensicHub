@@ -1,10 +1,32 @@
 import os
 import re
 from collections import defaultdict
+from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
+
+
+@lru_cache(maxsize=32)
+def _gaussian_weight_map(ph: int, pw: int) -> np.ndarray:
+    """Génère une carte de poids gaussienne 2D pour un patch (ph, pw).
+
+    Les pixels au centre ont un poids proche de 1, ceux aux bords proche de 0.
+    Utilise le produit de deux gaussiennes 1D (une par axe).
+    """
+    sigma_y = ph / 4.0
+    sigma_x = pw / 4.0
+    y = np.arange(ph, dtype=np.float64) - (ph - 1) / 2.0
+    x = np.arange(pw, dtype=np.float64) - (pw - 1) / 2.0
+    gy = np.exp(-0.5 * (y / sigma_y) ** 2)
+    gx = np.exp(-0.5 * (x / sigma_x) ** 2)
+    weight = np.outer(gy, gx)
+    # Normaliser pour que le max soit 1
+    weight /= weight.max()
+    # Clamp min pour éviter des poids nuls aux coins extrêmes
+    np.clip(weight, 1e-6, None, out=weight)
+    return weight
 
 
 def parse_sliding_window_name(name: str) -> Optional[Tuple[str, int, int]]:
@@ -38,7 +60,7 @@ def parse_sliding_window_name(name: str) -> Optional[Tuple[str, int, int]]:
 def merge_predictions(
     predictions: Dict[str, np.ndarray],
     origin_sizes: Dict[str, Tuple[int, int]],
-    mode: str = "mean",
+    mode: str = "gaussian",
 ) -> Dict[str, np.ndarray]:
     """Fusionne les prédictions de patches en images complètes.
 
@@ -50,7 +72,9 @@ def merge_predictions(
             Les noms suivent le format '{basename}_{y}_{x}'.
         origin_sizes: Dictionnaire {nom_base: (H, W)} des tailles originales.
         mode: Mode de fusion pour les zones de chevauchement.
-            - "mean": Moyenne des valeurs dans les zones de chevauchement.
+            - "gaussian": Weighted blending gaussien (recommandé). Les pixels
+              au centre du patch ont plus de poids que ceux aux bords.
+            - "mean": Moyenne simple des valeurs.
             - "max": Maximum des valeurs.
             - "min": Minimum des valeurs.
             - "overwrite": Le dernier patch écrase les précédents.
@@ -104,8 +128,8 @@ def merge_predictions(
                 _, ph, pw = patch.shape
                 _apply_merge_3d(full, count, patch, y, x, ph, pw, mode)
 
-        # Normaliser si mode mean
-        if mode == "mean":
+        # Normaliser si mode mean ou gaussian (weighted average)
+        if mode in ("mean", "gaussian"):
             count[count == 0] = 1
             full = full / count
 
@@ -133,6 +157,10 @@ def _apply_merge_2d(
     elif mode == "mean":
         full[y : y + ph, x : x + pw] += patch
         count[y : y + ph, x : x + pw] += 1
+    elif mode == "gaussian":
+        w = _gaussian_weight_map(ph, pw)
+        full[y : y + ph, x : x + pw] += patch * w
+        count[y : y + ph, x : x + pw] += w
     elif mode == "max":
         sub = full[y : y + ph, x : x + pw]
         full[y : y + ph, x : x + pw] = np.maximum(sub, patch)
@@ -162,6 +190,10 @@ def _apply_merge_3d(
     elif mode == "mean":
         full[:, y : y + ph, x : x + pw] += patch
         count[:, y : y + ph, x : x + pw] += 1
+    elif mode == "gaussian":
+        w = _gaussian_weight_map(ph, pw)  # (ph, pw)
+        full[:, y : y + ph, x : x + pw] += patch * w[np.newaxis, :, :]
+        count[:, y : y + ph, x : x + pw] += w[np.newaxis, :, :]
     elif mode == "max":
         sub = full[:, y : y + ph, x : x + pw]
         full[:, y : y + ph, x : x + pw] = np.maximum(sub, patch)
@@ -180,7 +212,7 @@ def merge_batch_predictions(
     pred_masks: torch.Tensor,
     origin_sizes: Optional[Dict[str, Tuple[int, int]]] = None,
     sw_metas: Optional[List[Dict]] = None,
-    mode: str = "mean",
+    mode: str = "gaussian",
 ) -> Dict[str, np.ndarray]:
     """Fusionne les prédictions d'un batch de patches en images complètes.
 
