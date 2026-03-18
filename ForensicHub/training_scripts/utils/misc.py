@@ -432,21 +432,24 @@ def save_model(args, epoch, model, model_without_ddp, optimizer, loss_scaler):
 
 
 def load_model(args, model_without_ddp, optimizer, loss_scaler):
-    if args.resume:
+    if hasattr(args, 'resume') and args.resume:
         if args.resume.startswith('https'):
             checkpoint = torch.hub.load_state_dict_from_url(
                 args.resume, map_location='cpu', check_hash=True)
         else:
             checkpoint = torch.load(args.resume, map_location='cpu',weights_only=False)
-        model_without_ddp.load_state_dict(checkpoint['model'])
+        if hasattr(args, 'strict'):
+            model_without_ddp.load_state_dict(checkpoint['model'],strict=args.strict)
+        else: 
+            model_without_ddp.load_state_dict(checkpoint['model'])
+            
         print("Resume checkpoint %s" % args.resume)
-        if 'optimizer' in checkpoint and 'epoch' in checkpoint and not (hasattr(args, 'eval') and args.eval):
+        if (hasattr(args,"load_optimizer") and args.load_optimizer) and 'optimizer' in checkpoint and 'epoch' in checkpoint and not (hasattr(args, 'eval') and args.eval):
             optimizer.load_state_dict(checkpoint['optimizer'])
             args.start_epoch = checkpoint['epoch'] + 1
             if 'scaler' in checkpoint:
                 loss_scaler.load_state_dict(checkpoint['scaler'])
             print("With optim & sched!")
-
 
 def all_reduce_mean(x):
     world_size = get_world_size()
