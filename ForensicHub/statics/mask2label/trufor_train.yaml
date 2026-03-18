@@ -17,27 +17,49 @@ model:
     mit_b2_pretrain_weights: /home/59435a/Forensic_hub/weight/mit_b2.pth
     config_path: /home/59435a/Forensic_hub/weight/trufor.yaml
 
-# Train dataset
+# Train dataset (single or list — lists are concatenated and shuffled)
 train_dataset:
-  name: DocDataset
-  dataset_name: DocTamperData_train
-  init_config:
-    path: /home/59435a/data_registry/data_process_out/doctamper_trainingset
-    get_dct_qtb: True
+  - name: DocDataset
+    dataset_name: DocTamperData_train
+    init_config:
+      path: /home/59435a/data_registry/data_process_out/doctamper_trainingset
+      get_dct_qtb: True
+  - name: DocDataset
+    dataset_name: DocTamperData_scd_train
+    init_config:
+      path: /home/59435a/data_registry/data_process_out/scd
+      get_dct_qtb: True
+
 #  Test dataset (one or many)
+#  Each test dataset can optionally specify its own evaluators.
+#  If no 'evaluator' key is present, the global evaluator list is used.
 test_dataset:
   - name: DocDataset
     dataset_name: DocTamperData_test
+    # This dataset has alterations => apply IOU + F1
+    evaluator:
+      - name: PixelIOU
+        init_config:
+          threshold: 0.5
+      - name: PixelF1
+        init_config:
+          threshold: 0.5
     init_config:
       path: /home/59435a/data_registry/data_process_out/doctamper_testingset
       get_dct_qtb: True
   - name: DocDataset
     dataset_name: DocTamperData_scd
+    # This dataset has no alteration => only F1, no IOU (would always be 0)
+    evaluator:
+      - name: PixelF1
+        init_config:
+          threshold: 0.5
     init_config:
       path: /home/59435a/data_registry/data_process_out/scd
       get_dct_qtb: True
   - name: DocDataset
     dataset_name: DocTamperData_fcd
+    # Uses global evaluator (no per-dataset override)
     init_config:
       path: /home/59435a/data_registry/data_process_out/fcd
       get_dct_qtb: True

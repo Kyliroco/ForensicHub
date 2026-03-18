@@ -54,6 +54,12 @@ def split_config(config):
     for x in test_dataset_args:
         if "init_config" not in x:
             x["init_config"] = {}
+        # Extract per-dataset evaluator config if present;
+        # ensure init_config for each per-dataset evaluator entry.
+        if "evaluator" in x:
+            for ev in x["evaluator"]:
+                if "init_config" not in ev:
+                    ev["init_config"] = {}
     if isinstance(train_dataset_args, list):
         for x in train_dataset_args:
             if "init_config" not in x:
