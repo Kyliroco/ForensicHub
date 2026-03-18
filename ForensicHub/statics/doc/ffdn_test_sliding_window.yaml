@@ -1,0 +1,82 @@
+# Exemple de configuration avec SlidingWindowWrapper
+# Découpe les images de test en patches 512x512 avec 50% de chevauchement
+# pour les images plus grandes que 512x512.
+#
+# La logique de découpe reprend celle du SplitPreprocessor de data_registry :
+# - stride = patch_size * overlapping (ex: 512 * 0.5 = 256px)
+# - couverture garantie des bords
+# - convention de nommage {basename}_{y}_{x} pour reconstruction via merge
+#
+# Pour reconstruire les prédictions :
+#   from ForensicHub.common.wrapper.sliding_window_merge import merge_batch_predictions
+#   merged = merge_batch_predictions(names, pred_masks, mode="mean")
+
+# DDP
+gpus: "0"
+flag: test
+
+# Log
+log_dir: "./log/doc_ffdn_sliding_window_test"
+
+# Task
+if_predict_label: false
+if_predict_mask: true
+
+# Model
+model:
+  name: FFDN
+  init_config:
+    weight_path: /path/to/convnext_small.pth
+
+# Test dataset avec SlidingWindowWrapper
+test_dataset:
+  # FCD avec fenêtre glissante
+  - name: SlidingWindowWrapper
+    dataset_name: fcd_sw
+    init_config:
+      patch_width: 512
+      patch_height: 512
+      overlapping: 0.5
+      dataset:
+        name: DocDataset
+        init_config:
+          get_dct_qtb: True
+          path: /path/to/FCD
+
+  # Même dataset sans fenêtre glissante (pour comparaison)
+  # - name: DocDataset
+  #   dataset_name: fcd
+  #   init_config:
+  #     get_dct_qtb: True
+  #     path: /path/to/FCD
+
+# Transform
+transform:
+  name: DocTransform
+  init_config:
+    norm_type: image_net
+    compression_type: cv
+
+# Evaluators
+evaluator:
+  - name: PixelIOU
+    init_config:
+      threshold: 0.5
+  - name: PixelF1
+    init_config:
+      threshold: 0.5
+
+# Test related
+test_batch_size: 8
+no_model_eval: false
+checkpoint_path: /path/to/checkpoints
+
+# Device
+device: "cuda"
+seed: 42
+num_workers: 8
+pin_mem: true
+
+# Distributed
+dist_on_itp: false
+dist_url: "env://"
