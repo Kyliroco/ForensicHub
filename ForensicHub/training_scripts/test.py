@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import time
 import argparse
 import datetime
@@ -8,7 +9,7 @@ import torch
 from pathlib import Path
 import timm.optim.optim_factory as optim_factory
 from torch.utils.tensorboard import SummaryWriter
-
+import torch
 import ForensicHub.training_scripts.utils.misc as misc
 from ForensicHub.registry import DATASETS, MODELS, POSTFUNCS, TRANSFORMS, EVALUATORS, build_from_registry
 from ForensicHub.common.evaluation import PixelF1, ImageF1
@@ -88,18 +89,32 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
     dataset_dict = {}
     dataset_logger = {}
     test_dataset_list = {}
+    dataset_percentage = getattr(args, 'dataset_percentage', None)
+    
     for test_args in test_dataset_args:
         test_args["init_config"].update({
             "post_funcs": post_function,
             "common_transform": test_transform,
             "post_transform": post_transform
         })
+        
         dataset = build_from_registry(DATASETS, test_args)
+        test_ds = build_from_registry(DATASETS, test_args)
         max_images = test_args.get("max_images", None)
-        if max_images is not None:
-            indices = list(range(min(int(max_images), len(dataset))))
-            dataset = torch.utils.data.Subset(dataset, indices)
-        test_dataset_list[test_args["dataset_name"]] = dataset
+        
+        if dataset_percentage is not None and dataset_percentage < 100:
+            if max_images is not None:
+                n_test = min(int(max_images), max(1, math.ceil(len(test_ds) * dataset_percentage / 100)))
+            else:
+                n_test = max(1, math.ceil(len(test_ds) * dataset_percentage / 100))
+            test_ds = torch.utils.data.Subset(test_ds, list(range(n_test)))
+            print(f"dataset_percentage={dataset_percentage}%: using {n_test} samples for {test_args['dataset_name']}.")
+        elif max_images is not None:
+            n_test = min(int(max_images),len(test_ds))
+            test_ds = torch.utils.data.Subset(dataset, list(range(n_test)))
+            
+        test_dataset_list[test_args["dataset_name"]] = test_ds
+        
     for t_args, dataset in zip(test_dataset_args, test_dataset_list.values()):
         print(f"Test dataset: {t_args['dataset_name']}\n{str(dataset)}\n")
 

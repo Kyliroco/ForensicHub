@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import time
 import argparse
 import datetime
@@ -126,6 +127,11 @@ def main(
             )
             _datasets.append(build_from_registry(DATASETS, t_args))
         train_dataset = torch.utils.data.ConcatDataset(_datasets)
+        dataset_percentage = getattr(args, 'dataset_percentage', None)
+        if dataset_percentage is not None and dataset_percentage < 100:
+            n_train = max(1, math.ceil(len(train_dataset) * dataset_percentage / 100))
+            train_dataset = torch.utils.data.Subset(train_dataset, list(range(n_train)))
+            print(f"dataset_percentage={dataset_percentage}%: using {n_train} train samples.")
     else:
         train_dataset_args["init_config"].update(
             {
@@ -135,6 +141,11 @@ def main(
             }
         )
         train_dataset = build_from_registry(DATASETS, train_dataset_args)
+        dataset_percentage = getattr(args, 'dataset_percentage', None)
+        if dataset_percentage is not None and dataset_percentage < 100:
+            n_train = max(1, math.ceil(len(train_dataset) * dataset_percentage / 100))
+            train_dataset = torch.utils.data.Subset(train_dataset, list(range(n_train)))
+            print(f"dataset_percentage={dataset_percentage}%: using {n_train} train samples.")
     test_dataset_list = {}
     for test_args in test_dataset_args:
         test_args["init_config"].update(
@@ -144,12 +155,21 @@ def main(
                 "post_transform": post_transform,
             }
         )
-        dataset = build_from_registry(DATASETS, test_args)
+        test_ds = build_from_registry(DATASETS, test_args)
         max_images = test_args.get("max_images", None)
-        if max_images is not None:
-            indices = list(range(min(int(max_images), len(dataset))))
-            dataset = torch.utils.data.Subset(dataset, indices)
-        test_dataset_list[test_args["dataset_name"]] = dataset
+        dataset_percentage = getattr(args, 'dataset_percentage', None)
+        if dataset_percentage is not None and dataset_percentage < 100:
+            if max_images is not None:
+                n_test = min(int(max_images),max(1, math.ceil(len(test_ds) * dataset_percentage / 100)))
+            else:
+                n_test = max(1, math.ceil(len(test_ds) * dataset_percentage / 100))
+            test_ds = torch.utils.data.Subset(test_ds, list(range(n_test)))
+            print(f"dataset_percentage={dataset_percentage}%: using {n_test} samples for {test_args['dataset_name']}.")
+        elif max_images is not None:
+            n_test = min(int(max_images), len(test_ds))
+            test_ds = torch.utils.data.Subset(test_ds, list(range(n_test)))
+            
+        test_dataset_list[test_args["dataset_name"]] = test_ds
 
     if isinstance(train_dataset_args, list):
         print(f"Train dataset: {[a['dataset_name'] for a in train_dataset_args]}.")
