@@ -311,6 +311,13 @@ class IMDLTransform(BaseTransform):
             # Add test transforms here if needed
         ])
 
+    def get_post_transform(self) -> albu.Compose:
+        """Get post-processing transforms (normalization and tensor conversion)."""
+        return albu.Compose([
+            albu.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ToTensorV2(transpose_mask=True)
+        ])
+
     def get_pad_transform(self) -> albu.Compose:
         """Get padding transforms."""
         return albu.Compose([
