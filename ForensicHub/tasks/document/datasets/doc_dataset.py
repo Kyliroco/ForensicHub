@@ -105,7 +105,7 @@ class DocDataset(BaseDataset):
         img_real_path = os.path.realpath(img_path)
         mime = magic.from_file(img_real_path, mime=True)
         if mask_path:
-            mask = np.clip(cv2.imread(mask_path, 0), 0, 1)
+            mask = np.ascontiguousarray(np.clip(cv2.imread(mask_path, 0), 0, 1))
         else:
             mask = np.zeros((w, h), dtype=np.uint8)
 
@@ -151,12 +151,14 @@ class DocDataset(BaseDataset):
                         dct = jpg.coef_arrays[0].copy()
                         qtb = jpg.quant_tables[0].copy()
 
-        mask = torch.LongTensor(mask)
-        mask = mask.unsqueeze(0)
+        mask = torch.tensor(np.ascontiguousarray(mask), dtype=torch.long)
+        mask = mask.unsqueeze(0).contiguous()
         label = (mask.sum(dim=(0, 1, 2)) != 0).long()
         if self.post_transform:
             image = self.post_transform(image=image)['image']
         if self.get_dct_qtb:
-            return {'image': image, 'mask': mask, 'label': label, 'dct': np.clip(np.abs(dct), 0, 20), 'qt': np.clip(np.abs(qtb), 0, 63)}
+            dct_out = np.ascontiguousarray(np.clip(np.abs(dct), 0, 20))
+            qt_out = np.ascontiguousarray(np.clip(np.abs(qtb), 0, 63))
+            return {'image': image, 'mask': mask, 'label': label, 'dct': dct_out, 'qt': qt_out}
         else:
             return {'image': image, 'mask': mask, 'label': label}
