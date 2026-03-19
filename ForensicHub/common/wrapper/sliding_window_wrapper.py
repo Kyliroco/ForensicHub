@@ -227,26 +227,48 @@ class SlidingWindowWrapper(Dataset):
     def __len__(self) -> int:
         return len(self._index_map)
 
+    def _get_actual_size(self, item: Dict[str, Any]) -> Tuple[int, int]:
+        """Récupère la taille (H, W) réelle de l'item post-transform."""
+        image = item["image"]
+        if isinstance(image, torch.Tensor):
+            if image.dim() == 3:
+                _, h, w = image.shape
+            else:
+                h, w = image.shape
+        else:
+            if image.ndim == 3:
+                h, w, _ = image.shape
+            else:
+                h, w = image.shape
+        return h, w
+
     def __getitem__(self, index: int) -> Dict[str, Any]:
         dataset_idx, y, x = self._index_map[index]
         item = self.dataset[dataset_idx]
         meta = self._meta[dataset_idx]
 
+        # Taille réelle post-transform (peut différer après RandomRotate90)
+        actual_h, actual_w = self._get_actual_size(item)
+
         # Pas de découpe nécessaire
-        if not meta["split"]:
+        if actual_w <= self.patch_width and actual_h <= self.patch_height:
             item["sw_meta"] = {
                 "split": False,
-                "origin_h": meta["h"],
-                "origin_w": meta["w"],
+                "origin_h": actual_h,
+                "origin_w": actual_w,
                 "patch_y": 0,
                 "patch_x": 0,
-                "patch_h": meta["h"],
-                "patch_w": meta["w"],
+                "patch_h": actual_h,
+                "patch_w": actual_w,
                 "original_name": item.get("name", f"img_{dataset_idx}"),
             }
             if "name" in item:
                 item["sw_name"] = item["name"]
             return item
+
+        # Clamper les coordonnées pour la taille réelle post-transform
+        y = min(y, max(actual_h - self.patch_height, 0))
+        x = min(x, max(actual_w - self.patch_width, 0))
 
         # Découpe en patch
         result = {}
@@ -288,8 +310,8 @@ class SlidingWindowWrapper(Dataset):
         result["name"] = f"{original_name}_{y}_{x}"
         result["sw_meta"] = {
             "split": True,
-            "origin_h": meta["h"],
-            "origin_w": meta["w"],
+            "origin_h": actual_h,
+            "origin_w": actual_w,
             "patch_y": y,
             "patch_x": x,
             "patch_h": self.patch_height,
