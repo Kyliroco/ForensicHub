@@ -73,9 +73,11 @@ class DocTransform(BaseTransform):
         else:
             raise ValueError
         return albu.Compose([
-            # Flips
+            # Geometric transforms BEFORE JPEG compression so that
+            # DCT coefficients match the (possibly rotated) image.
             albu.HorizontalFlip(p=0.5),
             albu.VerticalFlip(p=0.5),
+            albu.RandomRotate90(p=0.5),
             # Brightness and contrast fluctuation
             albu.RandomBrightnessContrast(
                 brightness_limit=(-0.1, 0.1),
@@ -83,8 +85,6 @@ class DocTransform(BaseTransform):
                 p=1
             ),
             jpeg_compression,
-            # Rotate
-            albu.RandomRotate90(p=0.5),
             # Blur
             albu.GaussianBlur(
                 blur_limit=(3, 7),
