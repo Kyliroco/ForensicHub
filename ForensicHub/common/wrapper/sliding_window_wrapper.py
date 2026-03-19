@@ -238,6 +238,11 @@ class SlidingWindowWrapper(Dataset):
                 "split": False,
                 "origin_h": meta["h"],
                 "origin_w": meta["w"],
+                "patch_y": 0,
+                "patch_x": 0,
+                "patch_h": meta["h"],
+                "patch_w": meta["w"],
+                "original_name": item.get("name", f"img_{dataset_idx}"),
             }
             if "name" in item:
                 item["sw_name"] = item["name"]
