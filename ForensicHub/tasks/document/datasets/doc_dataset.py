@@ -151,21 +151,6 @@ class DocDataset(BaseDataset):
                         dct = jpg.coef_arrays[0].copy()
                         qtb = jpg.quant_tables[0].copy()
 
-        # Crop image and mask to crop_size to ensure consistent tensor sizes in a batch
-        h_img, w_img = image.shape[:2]
-        crop_h = min(self.crop_size, h_img)
-        crop_w = min(self.crop_size, w_img)
-        if self.train:
-            top = np.random.randint(0, h_img - crop_h + 1)
-            left = np.random.randint(0, w_img - crop_w + 1)
-        else:
-            top = (h_img - crop_h) // 2
-            left = (w_img - crop_w) // 2
-        image = image[top:top + crop_h, left:left + crop_w]
-        mask = mask[top:top + crop_h, left:left + crop_w]
-        if self.get_dct_qtb:
-            dct = dct[top:top + crop_h, left:left + crop_w]
-
         mask = torch.tensor(np.ascontiguousarray(mask), dtype=torch.long)
         mask = mask.unsqueeze(0).contiguous()
         label = (mask.sum(dim=(0, 1, 2)) != 0).long()
