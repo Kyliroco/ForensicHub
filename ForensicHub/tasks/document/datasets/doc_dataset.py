@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 import os
+import sys
 import tempfile
 import cv2
 import torch
@@ -24,10 +25,6 @@ class DocDataset(BaseDataset):
         self.suffix_img = suffix_img
         self.suffix_mask = suffix_mask
         self.get_dct_qtb = get_dct_qtb
-        # if dct_path:
-            # # other_files/qt_table_ori.pk
-            # with open(dct_path, 'rb') as f:
-            #     self.qtables = pickle.load(f)
         super().__init__(path=path, **kwargs)
         print(path, self.__len__, 'train:', train)
 
@@ -64,7 +61,6 @@ class DocDataset(BaseDataset):
             return (image_path, mask_path)
 
         # 2) Parallélisation
-        # max_workers: threads = ok pour I/O. Tu peux aussi mettre min(32, (os.cpu_count() or 1) * 4)
         max_workers = min(32, (os.cpu_count() or 1) * 4)
 
         with ThreadPoolExecutor(max_workers=max_workers) as ex:
@@ -89,8 +85,21 @@ class DocDataset(BaseDataset):
 
     def __getitem__(self, index):
         img_path, mask_path = self.images[index]
+        try:
+            return self._load_item(img_path, mask_path)
+        except Exception as e:
+            print(
+                f"[DocDataset] Error loading image: {img_path} "
+                f"(mask: {mask_path}) — {type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
+            # Fallback: retourner un autre index au hasard
+            fallback_index = (index + 1) % len(self)
+            return self.__getitem__(fallback_index)
+
+    def _load_item(self, img_path, mask_path):
         image = Image.open(img_path)
-        if image.mode == "RGBA":
+        if image.mode != "RGB":
             image = image.convert("RGB")
         h, w = image.size
         img_real_path = os.path.realpath(img_path)
@@ -151,21 +160,3 @@ class DocDataset(BaseDataset):
             return {'image': image, 'mask': mask, 'label': label, 'dct': np.clip(np.abs(dct), 0, 20), 'qt': np.clip(np.abs(qtb), 0, 63)}
         else:
             return {'image': image, 'mask': mask, 'label': label}
-
-if __name__=='__main__':
-    data_names = (('/mnt/data0/public_datasets/Doc/DocTamperV1/DocTamperV1-TrainingSet', False), ('/mnt/data0/public_datasets/Doc/DocTamperV1/DocTamperV1-TrainingSet', True))
-    for v in data_names:
-        data = DocDataset(path=v[0], train=v[1])
-        for i in range(10):
-            item = data.__getitem__(0)
-            img = item['image']
-            mask = item['mask']
-        import pdb;pdb.set_trace()
-            # if use_dct:
-            #     dct = item['dct']
-            #     qtb = item['qtb']
-            #     print(data_names, i, img.shape, mask.shape, dct.shape, qtb.shape)
-            # else:
-            #     print(data_names, i, img.shape, mask.shape)
-             
-            
