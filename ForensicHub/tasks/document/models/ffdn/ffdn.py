@@ -550,7 +550,7 @@ class FFDN(BaseModel):
         
         self.head_2 = self._build_detection_head(self.second_head)
         self.init_vph(weight_path)
-        
+        self.freeze_for_det = freeze_for_det
         if freeze_for_det:
             self._freeze_all_except_detection_head()
         
@@ -669,7 +669,7 @@ class FFDN(BaseModel):
         decoder_output = self.decoder(features)
         bottleneck = decoder_output[0]
         output_dict = {"visual_loss": {}, "visual_image": {}}
-        if self.head is not None and not self.freeze_for_det:
+        if not self.training or (self.head is not None and not self.freeze_for_det):
             output = self.head(bottleneck)
             seg_loss, output = self.cal_seg_loss(output, mask)
             output_dict["pred_mask"] = F.softmax(output, dim=1)[:, 1:]
