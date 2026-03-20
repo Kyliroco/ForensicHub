@@ -148,9 +148,11 @@ class SlidingWindowWrapper(Dataset):
                         self._index_map.append((idx, y, x))
 
         n_split = sum(1 for m in self._meta.values() if m["split"])
+        self._n_source_images = len(self.dataset)
         print(
             f"[SlidingWindowWrapper] {len(self._index_map)} patches totaux "
-            f"({n_split}/{len(self.dataset)} images découpées)"
+            f"from {self._n_source_images} source images "
+            f"({n_split} split, {self._n_source_images - n_split} kept as-is)"
         )
 
     def _compute_patch_positions(
@@ -327,7 +329,7 @@ class SlidingWindowWrapper(Dataset):
         return (
             f"SlidingWindowWrapper("
             f"patches={len(self)}, "
-            f"source_images={len(self.dataset)}, "
+            f"source_images={getattr(self, '_n_source_images', len(self.dataset))}, "
             f"patch_size=({self.patch_height}, {self.patch_width}), "
             f"overlapping={self.overlapping})"
         )
