@@ -11,6 +11,7 @@ import timm.optim.optim_factory as optim_factory
 from torch.utils.tensorboard import SummaryWriter
 import torch
 import ForensicHub.training_scripts.utils.misc as misc
+from ForensicHub.training_scripts.utils.misc import common_keys_collate
 from ForensicHub.registry import DATASETS, MODELS, POSTFUNCS, TRANSFORMS, EVALUATORS, build_from_registry
 from ForensicHub.common.evaluation import PixelF1, ImageF1
 from IMDLBenCo.training_scripts.tester import test_one_epoch
@@ -162,6 +163,7 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
             num_workers=args.num_workers,
             pin_memory=args.pin_mem,
             drop_last=True,
+            collate_fn=common_keys_collate,
         )
         dataset_dict[dataset_name] = dataloader_test
     print("dataset_dict", dataset_dict)

@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from colorama import Fore, Style
 
 import ForensicHub.training_scripts.utils.misc as misc
+from ForensicHub.training_scripts.utils.misc import common_keys_collate
 from ForensicHub.registry import (
     DATASETS,
     MODELS,
@@ -237,6 +238,7 @@ def main(
         num_workers=args.num_workers,
         pin_memory=args.pin_mem,
         drop_last=True,
+        collate_fn=common_keys_collate,
     )
 
     test_dataloaders = {}
@@ -248,6 +250,7 @@ def main(
             num_workers=args.num_workers,
             pin_memory=args.pin_mem,
             drop_last=True,
+            collate_fn=common_keys_collate,
         )
         test_dataloaders[test_dataset_name] = test_dataloader
 
