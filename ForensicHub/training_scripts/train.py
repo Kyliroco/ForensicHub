@@ -2,6 +2,7 @@ import os
 import json
 import math
 import time
+import random
 import argparse
 import datetime
 import numpy as np
@@ -136,10 +137,14 @@ def main(
                     n_train = min(int(max_images),max(1, math.ceil(len(_dataset) * dataset_percentage / 100)))
                 else:
                     n_train = max(1, math.ceil(len(_dataset) * dataset_percentage / 100))
-                _dataset = torch.utils.data.Subset(_dataset, list(range(n_train)))
+                indices = list(range(len(_dataset)))
+                random.Random(42).shuffle(indices)
+                _dataset = torch.utils.data.Subset(_dataset, indices[:n_train])
             elif max_images is not None:
                 n_train = min(int(max_images), len(_dataset))
-                _dataset = torch.utils.data.Subset(_dataset, list(range(n_train)))
+                indices = list(range(len(_dataset)))
+                random.Random(42).shuffle(indices)
+                _dataset = torch.utils.data.Subset(_dataset, indices[:n_train])
                 print(f"dataset_percentage={dataset_percentage}%: using {n_train} train samples.")
                 
             _datasets.append(_dataset)
@@ -161,10 +166,14 @@ def main(
                 n_train = min(int(max_images),max(1, math.ceil(len(train_dataset) * dataset_percentage / 100)))
             else:
                 n_train = max(1, math.ceil(len(train_dataset) * dataset_percentage / 100))
-            train_dataset = torch.utils.data.Subset(train_dataset, list(range(n_train)))
+            indices = list(range(len(train_dataset)))
+            random.Random(42).shuffle(indices)
+            train_dataset = torch.utils.data.Subset(train_dataset, indices[:n_train])
         elif max_images is not None:
             n_train = min(int(max_images), len(train_dataset))
-            train_dataset = torch.utils.data.Subset(train_dataset, list(range(n_train)))
+            indices = list(range(len(train_dataset)))
+            random.Random(42).shuffle(indices)
+            train_dataset = torch.utils.data.Subset(train_dataset, indices[:n_train])
             print(f"dataset_percentage={dataset_percentage}%: using {n_train} train samples.")
             
     test_dataset_list = {}
@@ -184,11 +193,15 @@ def main(
                 n_test = min(int(max_images),max(1, math.ceil(len(test_ds) * dataset_percentage / 100)))
             else:
                 n_test = max(1, math.ceil(len(test_ds) * dataset_percentage / 100))
-            test_ds = torch.utils.data.Subset(test_ds, list(range(n_test)))
+            indices = list(range(len(test_ds)))
+            random.Random(42).shuffle(indices)
+            test_ds = torch.utils.data.Subset(test_ds, indices[:n_test])
             print(f"dataset_percentage={dataset_percentage}%: using {n_test} samples for {test_args['dataset_name']}.")
         elif max_images is not None:
             n_test = min(int(max_images), len(test_ds))
-            test_ds = torch.utils.data.Subset(test_ds, list(range(n_test)))
+            indices = list(range(len(test_ds)))
+            random.Random(42).shuffle(indices)
+            test_ds = torch.utils.data.Subset(test_ds, indices[:n_test])
             
         test_dataset_list[test_args["dataset_name"]] = test_ds
 
