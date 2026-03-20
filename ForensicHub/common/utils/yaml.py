@@ -90,6 +90,34 @@ def split_config(config):
     # )
 
 
+def split_run_config(config):
+    """Split config dict for run (inference) mode.
+
+    Returns (args, model_args, run_dataset_args, transform_args).
+    run_dataset_args is a list of dataset dicts, each with an optional
+    'output_dir' key for per-dataset output subdirectory.
+    """
+    model_args = config.pop("model", {})
+    run_dataset_args = config.pop("run_dataset", [])
+    transform_args = config.pop("transform", {})
+    args = config
+
+    if "init_config" not in model_args:
+        model_args["init_config"] = {}
+    for x in run_dataset_args:
+        if "init_config" not in x:
+            x["init_config"] = {}
+    if transform_args and "init_config" not in transform_args:
+        transform_args["init_config"] = {}
+
+    return (
+        dict_to_namespace(args),
+        model_args,
+        run_dataset_args,
+        transform_args,
+    )
+
+
 def add_attr(ns, **kwargs):
     for k, v in kwargs.items():
         setattr(ns, k, v)

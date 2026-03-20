@@ -1,0 +1,117 @@
+# ============================================================
+# ForensicHub - Run (Inference) Configuration
+# ============================================================
+# This config runs a trained model on images and saves outputs.
+# No metrics are computed, no shuffle, no training.
+#
+# Usage:
+#   forhub run ./example_run.yaml
+# ============================================================
+
+# DDP
+gpus: "0"
+flag: run
+
+# Log directory (used for stdout/stderr logs)
+log_dir: "./log/run_inference"
+
+# Task - what does the model predict?
+if_predict_label: false
+if_predict_mask: true
+
+# ---- Output settings ----
+# Common base directory for all dataset outputs.
+# Each dataset's output_dir is appended to this path.
+# Example: output_base_dir + output_dir => /home/user/data/fcd
+output_base_dir: /home/user/data
+
+# Optional global threshold: zero out predicted pixels below this value.
+# Can also be set per-dataset (see run_dataset below).
+# threshold: 0.5
+
+# Merge mode for sliding window predictions.
+# Options: gaussian (recommended), mean, max, min, overwrite
+merge_mode: gaussian
+
+# ---- Model ----
+model:
+  name: FFDN
+  init_config:
+    weight_path: /path/to/convnext_small.pth
+
+# ---- Checkpoint to load ----
+# Single checkpoint file (not a directory like in test mode)
+checkpoint_path: /path/to/checkpoint-best.pth
+
+# ---- Datasets to run inference on ----
+# Each dataset has:
+#   - name: registry name of the dataset class
+#   - dataset_name: identifier for logging
+#   - output_dir: subdirectory under output_base_dir for this dataset's outputs
+#   - threshold: (optional) per-dataset threshold override
+#   - init_config: dataset-specific configuration
+#
+# If the dataset has labels, outputs will be separated into
+# label_0/, label_1/, etc. subdirectories automatically.
+
+run_dataset:
+  # Document dataset with sliding window
+  - name: SlidingWindowWrapper
+    dataset_name: fcd
+    output_dir: fcd
+    init_config:
+      patch_width: 512
+      patch_height: 512
+      overlapping: 0.5
+      dataset:
+        name: DocDataset
+        init_config:
+          get_dct_qtb: true
+          path: /path/to/FCD
+
+  # Another document dataset
+  - name: SlidingWindowWrapper
+    dataset_name: scd
+    output_dir: scd
+    init_config:
+      patch_width: 512
+      patch_height: 512
+      overlapping: 0.5
+      dataset:
+        name: DocDataset
+        init_config:
+          get_dct_qtb: true
+          path: /path/to/SCD
+
+  # Dataset without sliding window
+  - name: DocDataset
+    dataset_name: rtm
+    output_dir: rtm
+    # threshold: 0.3    # per-dataset threshold override
+    init_config:
+      get_dct_qtb: true
+      path: /path/to/RTM
+
+# ---- Transform (optional) ----
+# Transforms are applied to images before inference.
+# Useful to test the effect of different transforms on output.
+# If omitted, no transform is applied.
+transform:
+  name: DocTransform
+  init_config:
+    norm_type: image_net
+    compression_type: cv
+
+# ---- Inference settings ----
+batch_size: 8
+no_model_eval: false
+
+# Device
+device: "cuda"
+seed: 42
+num_workers: 8
+pin_mem: true
+
+# Distributed
+dist_on_itp: false
+dist_url: "env://"
