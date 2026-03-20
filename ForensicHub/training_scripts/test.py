@@ -16,6 +16,7 @@ from ForensicHub.registry import DATASETS, MODELS, POSTFUNCS, TRANSFORMS, EVALUA
 from ForensicHub.common.evaluation import PixelF1, ImageF1
 from IMDLBenCo.training_scripts.tester import test_one_epoch
 from ForensicHub.common.utils.yaml import load_yaml_config, split_config, add_attr
+from colorama import Fore, Style
 
 
 def get_args_parser():
@@ -129,8 +130,13 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
             
         test_dataset_list[test_args["dataset_name"]] = test_ds
         
+    # Log test datasets with dataset:count format
+    test_parts = ", ".join(
+        f"{name}: {len(ds)}" for name, ds in test_dataset_list.items()
+    )
+    print(f"Test datasets: [{test_parts}]")
     for t_args, dataset in zip(test_dataset_args, test_dataset_list.values()):
-        print(f"Test dataset: {t_args['dataset_name']}\n{str(dataset)}\n")
+        print(f"  {t_args['dataset_name']}: {str(dataset)}")
 
     # Start go through each datasets:
     for dataset_name, test_dataset in test_dataset_list.items():
@@ -186,8 +192,11 @@ def main(args, model_args, train_dataset_args, test_dataset_args, transform_args
                     dataset_name, evaluator_list
                 )
                 print(
-                    "Testing on dataset: %s (evaluators: %s)"
-                    % (dataset_name, [e.name for e in ds_evaluator_list])
+                    Fore.CYAN + f"\n{'='*60}\n"
+                    f"  TEST >> {dataset_name}  "
+                    f"({len(dataloader_test)} batches)\n"
+                    f"  Evaluators: {[e.name for e in ds_evaluator_list]}\n"
+                    f"{'='*60}" + Style.RESET_ALL
                 )
                 args.full_log_dir = os.path.join(args.log_dir, dataset_name)
                 test_stats = test_one_epoch(
