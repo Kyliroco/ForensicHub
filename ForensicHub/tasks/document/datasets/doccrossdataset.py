@@ -84,10 +84,12 @@ class DocumentCrossDataset(BaseDataset):
             image = out['image']
             mask = out['mask']
         mask = mask.float()
+        name = os.path.splitext(os.path.basename(image_path))[0]
         output = {
             "image": image,
             "mask": mask,
-            "label": torch.tensor(1).long() if torch.sum(mask) > 0 else torch.tensor(0).long()
+            "label": torch.tensor(1).long() if torch.sum(mask) > 0 else torch.tensor(0).long(),
+            "name": name,
         }
 
         # Apply post-processing functions
