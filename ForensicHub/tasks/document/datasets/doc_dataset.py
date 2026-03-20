@@ -125,6 +125,10 @@ class DocDataset(BaseDataset):
                     qtb = jpg.quant_tables[0].copy()
 
         image = np.array(image)
+        # Crop test-mode DCT to match image spatial dimensions (JPEG pads to 8-pixel blocks)
+        if not self.train and self.get_dct_qtb:
+            img_h, img_w = image.shape[:2]
+            dct = dct[:img_h, :img_w]
         if self.common_transform:
             output = self.common_transform(image=image, mask=mask)
             image = output['image']
@@ -138,18 +142,17 @@ class DocDataset(BaseDataset):
                 dct = jpeg_t._last_dct
                 qtb = jpeg_t._last_qtb
             else:
-                # Fallback if the transform was not found or did not fire (p < 1)
-                if mime == "image/jpeg":
-                    jpg = jpegio.read(img_path)
+                # Fallback if the transform was not found or did not fire (p < 1):
+                # encode the current (post-transform) image so DCT matches pixels.
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
+                    tmp_path = tmp.name
+                    Image.fromarray(image).save(tmp_path, format="JPEG", quality=100, subsampling=0)
+                    jpg = jpegio.read(tmp_path)
                     dct = jpg.coef_arrays[0].copy()
                     qtb = jpg.quant_tables[0].copy()
-                else:
-                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
-                        tmp_path = tmp.name
-                        Image.fromarray(image).save(tmp_path, format="JPEG", quality=100, subsampling=0)
-                        jpg = jpegio.read(tmp_path)
-                        dct = jpg.coef_arrays[0].copy()
-                        qtb = jpg.quant_tables[0].copy()
+            # Crop DCT to match image spatial dimensions (JPEG pads to 8-pixel blocks)
+            img_h, img_w = image.shape[:2]
+            dct = dct[:img_h, :img_w]
 
         mask = torch.tensor(np.ascontiguousarray(mask), dtype=torch.long)
         mask = mask.unsqueeze(0).contiguous()

@@ -121,6 +121,13 @@ class PillowJpegCompression(ImageOnlyTransform):
         self._last_dct = None
         self._last_qtb = None
 
+    def __call__(self, *args, **kwargs):
+        # Reset DCT state so stale values from a previous image are never
+        # mistaken for the current one when the transform is skipped (p < 1).
+        self._last_dct = None
+        self._last_qtb = None
+        return super().__call__(*args, **kwargs)
+
     def apply(self, img: np.ndarray, luma_table: list, chroma_table: list, **params) -> np.ndarray:
         """Compress *img* with the given quantization tables, capture DCT/QTB,
         and return the decoded result.
@@ -206,6 +213,13 @@ class JpegCompressionWithDCT(ImageOnlyTransform):
         self.quality_range = quality_range
         self._last_dct = None
         self._last_qtb = None
+
+    def __call__(self, *args, **kwargs):
+        # Reset DCT state so stale values from a previous image are never
+        # mistaken for the current one when the transform is skipped (p < 1).
+        self._last_dct = None
+        self._last_qtb = None
+        return super().__call__(*args, **kwargs)
 
     def apply(self, img: np.ndarray, quality: int = 75, **params) -> np.ndarray:
         """Compress *img* once, capture DCT/QTB, return decompressed pixels.
