@@ -26,6 +26,22 @@ if major_version >= 2:
 else:
     from torch._six import inf
 
+def common_keys_collate(batch):
+    """Custom collate that only collates keys common to all dicts in the batch.
+
+    This prevents KeyError when mixing datasets with different output keys
+    (e.g. SlidingWindowWrapper adds 'sw_meta' but plain datasets don't).
+    """
+    from torch.utils.data._utils.collate import default_collate
+    if not batch or not isinstance(batch[0], dict):
+        return default_collate(batch)
+    common = set(batch[0].keys())
+    for d in batch[1:]:
+        common &= set(d.keys())
+    filtered = [{k: d[k] for k in common} for d in batch]
+    return default_collate(filtered)
+
+
 class SmoothedValue(object):
     """Track a series of values and provide access to smoothed values over a
     window or the global series average.
