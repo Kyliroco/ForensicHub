@@ -156,9 +156,10 @@ class DocDataset(BaseDataset):
         label = (mask.sum(dim=(0, 1, 2)) != 0).long()
         if self.post_transform:
             image = self.post_transform(image=image)['image']
+        name = os.path.splitext(os.path.basename(img_path))[0]
         if self.get_dct_qtb:
             dct_out = np.ascontiguousarray(np.clip(np.abs(dct), 0, 20))
             qt_out = np.ascontiguousarray(np.clip(np.abs(qtb), 0, 63))
-            return {'image': image, 'mask': mask, 'label': label, 'dct': dct_out, 'qt': qt_out}
+            return {'image': image, 'mask': mask, 'label': label, 'dct': dct_out, 'qt': qt_out, 'name': name}
         else:
-            return {'image': image, 'mask': mask, 'label': label}
+            return {'image': image, 'mask': mask, 'label': label, 'name': name}

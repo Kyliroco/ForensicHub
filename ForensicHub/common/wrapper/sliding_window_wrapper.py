@@ -250,6 +250,8 @@ class SlidingWindowWrapper(Dataset):
         # Taille réelle post-transform (peut différer après RandomRotate90)
         actual_h, actual_w = self._get_actual_size(item)
 
+        original_name = item.get("name", f"img_{dataset_idx}")
+
         # Pas de découpe nécessaire
         if actual_w <= self.patch_width and actual_h <= self.patch_height:
             item["sw_meta"] = {
@@ -260,10 +262,10 @@ class SlidingWindowWrapper(Dataset):
                 "patch_x": 0,
                 "patch_h": actual_h,
                 "patch_w": actual_w,
-                "original_name": item.get("name", f"img_{dataset_idx}"),
+                "original_name": original_name,
             }
-            if "name" in item:
-                item["sw_name"] = item["name"]
+            item["name"] = original_name
+            item["sw_name"] = original_name
             return item
 
         # Clamper les coordonnées pour la taille réelle post-transform
@@ -306,7 +308,6 @@ class SlidingWindowWrapper(Dataset):
                 result["label"] = torch.tensor(int(mask_patch.sum() != 0)).long()
 
         # Métadonnées pour la reconstruction
-        original_name = item.get("name", f"img_{dataset_idx}")
         result["name"] = f"{original_name}_{y}_{x}"
         result["sw_meta"] = {
             "split": True,
