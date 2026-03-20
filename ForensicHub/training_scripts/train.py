@@ -192,14 +192,21 @@ def main(
             
         test_dataset_list[test_args["dataset_name"]] = test_ds
 
+    # Log train datasets with dataset:count format
     if isinstance(train_dataset_args, list):
-        print(f"Train dataset: {[a['dataset_name'] for a in train_dataset_args]}.")
+        train_parts = ", ".join(
+            f"{a['dataset_name']}: {len(d)}"
+            for a, d in zip(train_dataset_args, _datasets)
+        )
+        print(f"Train datasets: [{train_parts}] (total: {len(train_dataset)})")
     else:
-        print(f"Train dataset: {train_dataset_args['dataset_name']}.")
-    print(len(train_dataset))
+        print(f"Train dataset: {train_dataset_args['dataset_name']}: {len(train_dataset)}")
     print(str(train_dataset))
-    print(f"Test dataset: {[args['dataset_name'] for args in test_dataset_args]}.")
-    print([len(dataset) for dataset in test_dataset_list.values()])
+    # Log test datasets with dataset:count format
+    test_parts = ", ".join(
+        f"{name}: {len(ds)}" for name, ds in test_dataset_list.items()
+    )
+    print(f"Test datasets: [{test_parts}]")
 
     test_sampler = {}
     if args.distributed:
@@ -399,9 +406,11 @@ def main(
                     test_dataset_name, evaluator_list
                 )
                 print(
-                    f"!!!Start Test: {test_dataset_name}",
-                    len(test_dataloader),
-                    f"evaluators: {[e.name for e in ds_evaluator_list]}",
+                    Fore.CYAN + f"\n{'='*60}\n"
+                    f"  TEST >> {test_dataset_name}  "
+                    f"({len(test_dataloader)} batches)\n"
+                    f"  Evaluators: {[e.name for e in ds_evaluator_list]}\n"
+                    f"{'='*60}" + Style.RESET_ALL
                 )
                 test_stats = test_one_epoch(
                     model,
