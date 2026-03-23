@@ -19,8 +19,10 @@ if [ "$flag" = "test" ]; then
     script_path="ForensicHub/training_scripts/test.py"
 elif [ "$flag" = "train" ]; then
     script_path="ForensicHub/training_scripts/train.py"
+elif [ "$flag" = "run" ]; then
+    script_path="ForensicHub/training_scripts/run.py"
 else
-    echo "配置文件中的 flag 字段必须是 'test' 或 'train'，当前是 '$flag'"
+    echo "flag must be 'train', 'test' or 'run', got '$flag'"
     exit 1
 fi
 

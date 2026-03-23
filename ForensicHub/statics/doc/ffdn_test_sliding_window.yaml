@@ -37,6 +37,7 @@ test_dataset:
       patch_width: 512
       patch_height: 512
       overlapping: 0.5
+      merge_mode: gaussian
       dataset:
         name: DocDataset
         init_config:

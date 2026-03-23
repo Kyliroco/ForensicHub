@@ -29,10 +29,6 @@ output_base_dir: /home/user/data
 # Can also be set per-dataset (see run_dataset below).
 # threshold: 0.5
 
-# Merge mode for sliding window predictions.
-# Options: gaussian (recommended), mean, max, min, overwrite
-merge_mode: gaussian
-
 # ---- Model ----
 model:
   name: FFDN
@@ -63,6 +59,7 @@ run_dataset:
       patch_width: 512
       patch_height: 512
       overlapping: 0.5
+      merge_mode: gaussian    # gaussian, mean, max, min, overwrite
       dataset:
         name: DocDataset
         init_config:
@@ -77,6 +74,7 @@ run_dataset:
       patch_width: 512
       patch_height: 512
       overlapping: 0.5
+      merge_mode: gaussian
       dataset:
         name: DocDataset
         init_config:

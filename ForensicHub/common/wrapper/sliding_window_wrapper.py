@@ -26,6 +26,7 @@ class SlidingWindowWrapper(Dataset):
               patch_width: 512
               patch_height: 512
               overlapping: 0.5
+              merge_mode: gaussian   # gaussian, mean, max, min, overwrite
               dataset:
                 name: DocDataset
                 init_config:
@@ -34,7 +35,7 @@ class SlidingWindowWrapper(Dataset):
 
     Usage programmatique:
         base_ds = DocDataset(path="/path/to/data")
-        sw_ds = SlidingWindowWrapper(dataset=base_ds, patch_width=512, patch_height=512)
+        sw_ds = SlidingWindowWrapper(dataset=base_ds, patch_width=512, patch_height=512, merge_mode="gaussian")
     """
 
     def __init__(
@@ -43,6 +44,7 @@ class SlidingWindowWrapper(Dataset):
         patch_width: int = 512,
         patch_height: int = 512,
         overlapping: float = 0.5,
+        merge_mode: str = "gaussian",
         common_transform=None,
         post_transform=None,
         post_funcs=None,
@@ -56,6 +58,9 @@ class SlidingWindowWrapper(Dataset):
             patch_width: Largeur des patches en pixels.
             patch_height: Hauteur des patches en pixels.
             overlapping: Ratio de chevauchement entre patches (0.5 = 50%).
+            merge_mode: Mode de fusion pour les zones de chevauchement lors du
+                merge des predictions. Options: "gaussian" (recommande),
+                "mean", "max", "min", "overwrite".
             common_transform: Transform à passer au dataset interne (si construit via config).
             post_transform: Post-transform à passer au dataset interne (si construit via config).
             post_funcs: Post-fonctions à passer au dataset interne (si construit via config).
@@ -77,6 +82,7 @@ class SlidingWindowWrapper(Dataset):
         self.patch_width = int(patch_width)
         self.patch_height = int(patch_height)
         self.overlapping = overlapping
+        self.merge_mode = merge_mode
 
         # Pré-indexation : pour chaque item du dataset source,
         # on calcule les positions des patches.

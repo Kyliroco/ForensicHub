@@ -125,7 +125,6 @@ def main(args, model_args, run_dataset_args, transform_args):
     # Global settings
     output_base_dir = getattr(args, 'output_base_dir', './run_output')
     threshold = getattr(args, 'threshold', None)
-    merge_mode = getattr(args, 'merge_mode', 'gaussian')
     predict_mask = getattr(args, 'if_predict_mask', False)
     predict_label = getattr(args, 'if_predict_label', True)
 
@@ -312,6 +311,7 @@ def main(args, model_args, run_dataset_args, transform_args):
 
         # Merge sliding window predictions
         if is_sliding_window and sw_all_names:
+            merge_mode = getattr(dataset, 'merge_mode', 'gaussian')
             print(f"  Merging {len(sw_all_names)} patches with mode='{merge_mode}'...")
             # Build origin_sizes from metas
             origin_sizes = {}
