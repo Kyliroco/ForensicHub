@@ -288,7 +288,7 @@ class GF(nn.Module):
         self.r = r
         self.eps = eps
         self.boxfilter = BoxFilter(r)
-        self.epss = 1e-12
+        self.epss = 1e-6  # numerical guard — 1e-12 was too small (backward ∝ 1/epss² overflows)
 
     def forward(self, lr_x, lr_y, hr_x, l_a):
         n_lrx, c_lrx, h_lrx, w_lrx = lr_x.size()
@@ -312,7 +312,7 @@ class GF(nn.Module):
         l_a = torch.abs(l_a) + self.epss
 
         t_all = torch.sum(l_a)
-        l_t = l_a / t_all
+        l_t = l_a / (t_all + self.epss)
 
         ## mean_attention
         mean_a = self.boxfilter(l_a) / N
