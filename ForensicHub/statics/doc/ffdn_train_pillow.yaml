@@ -210,6 +210,7 @@ lr: 1e-4
 blr: 0.001
 min_lr: 5e-7
 warmup_epochs: 0
+clip_grad: 1.0  # gradient clipping to prevent NaN explosion under AMP
 
 # Device and training control
 device: "cuda"
