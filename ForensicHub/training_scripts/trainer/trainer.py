@@ -81,7 +81,8 @@ def train_one_epoch(model: torch.nn.Module,
 
         predict_loss = loss / accum_iter
         loss_scaler(predict_loss, optimizer, parameters=model.parameters(),
-                    update_grad=(data_iter_step + 1) % accum_iter == 0)
+                    update_grad=(data_iter_step + 1) % accum_iter == 0,
+                    named_parameters=list(model.named_parameters()))
 
         # --- NaN/Inf memory cleanup ---
         # When loss_scaler skips a batch due to NaN/Inf, backward() is never
@@ -89,6 +90,9 @@ def train_one_epoch(model: torch.nn.Module,
         # in GPU memory. We must explicitly delete all references to model
         # outputs and force memory reclamation before the next forward pass.
         if loss_scaler.last_nan_skipped:
+            batch_names = data_dict.get('name')
+            if batch_names is not None:
+                print(f"[NaN Debug] Skipped batch — images: {list(batch_names)}")
             del output_dict, loss, predict_loss, visual_loss
             del mask_pred, visual_image
             gc.collect()

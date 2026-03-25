@@ -303,7 +303,25 @@ class NativeScalerWithGradNormCount:
         del nan_flag
         return result
 
-    def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
+    def _log_nan_gradients(self, named_parameters):
+        """Log which layers have NaN/Inf gradients before they are cleared."""
+        nan_layers = []
+        for name, param in named_parameters:
+            if param.grad is not None and not torch.isfinite(param.grad).all():
+                nan_count = (~torch.isfinite(param.grad)).sum().item()
+                total = param.grad.numel()
+                nan_layers.append(f"  {name}: {nan_count}/{total} NaN/Inf values")
+        if nan_layers:
+            print(f"[NaN Debug] {len(nan_layers)} layer(s) with NaN/Inf gradients:")
+            for info in nan_layers[:30]:
+                print(info)
+            if len(nan_layers) > 30:
+                print(f"  ... and {len(nan_layers) - 30} more layers")
+        else:
+            print("[NaN Debug] Per-layer check: no individual NaN gradients found "
+                  "(norm may be NaN due to overflow in norm computation itself)")
+
+    def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True, named_parameters=None):
         self._last_nan_skipped = False
         # Check if loss is NaN or Inf before backward
         local_nan_detected = not torch.isfinite(loss).all()
@@ -379,6 +397,8 @@ class NativeScalerWithGradNormCount:
             if any_rank_grad_nan:
                 if local_grad_nan:
                     print(f"[Warning] NaN/Inf gradients detected after unscale (norm={norm}), skipping optimizer step")
+                    if named_parameters is not None:
+                        self._log_nan_gradients(named_parameters)
                 else:
                     print(f"[Warning] Another rank detected NaN/Inf gradients, skipping optimizer step to stay synchronized")
                 self._nan_skip_count += 1
