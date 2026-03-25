@@ -80,7 +80,7 @@ def train_one_epoch(model: torch.nn.Module,
         visual_image = output_dict.get('visual_image')
 
         predict_loss = loss / accum_iter
-        loss_scaler(predict_loss, optimizer,
+        grad_norm = loss_scaler(predict_loss, optimizer,
                     clip_grad=getattr(args, 'clip_grad', None),
                     parameters=model.parameters(),
                     update_grad=(data_iter_step + 1) % accum_iter == 0,
@@ -114,6 +114,8 @@ def train_one_epoch(model: torch.nn.Module,
         lr = optimizer.param_groups[0]["lr"]
         # save to log.txt
         metric_logger.update(lr=lr)
+        if grad_norm is not None:
+            metric_logger.update(grad_norm=grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm)
 
         metric_logger.update(**visual_loss_item)
 
@@ -128,6 +130,10 @@ def train_one_epoch(model: torch.nn.Module,
 
             for k, v in visual_loss_reduced.items():
                 log_writer.add_scalar(f"train_loss/{k}", v, epoch_1000x)
+
+            if grad_norm is not None:
+                gn = grad_norm.item() if hasattr(grad_norm, 'item') else grad_norm
+                log_writer.add_scalar('train/grad_norm', gn, epoch_1000x)
 
     if data_dict.get('image') is not None:
         samples = data_dict['image']
