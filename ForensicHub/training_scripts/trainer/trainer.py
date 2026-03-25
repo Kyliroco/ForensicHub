@@ -80,7 +80,9 @@ def train_one_epoch(model: torch.nn.Module,
         visual_image = output_dict.get('visual_image')
 
         predict_loss = loss / accum_iter
-        loss_scaler(predict_loss, optimizer, parameters=model.parameters(),
+        loss_scaler(predict_loss, optimizer,
+                    clip_grad=getattr(args, 'clip_grad', None),
+                    parameters=model.parameters(),
                     update_grad=(data_iter_step + 1) % accum_iter == 0,
                     named_parameters=list(model.named_parameters()))
 
