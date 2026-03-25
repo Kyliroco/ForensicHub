@@ -608,6 +608,19 @@ class FFDN(BaseModel):
         new_weights = {'.'.join(k.split('.')[1:]): v for k, v in weights.items()}
         self.vph.load_state_dict(new_weights)
 
+    @staticmethod
+    def _check_act(name: str, t: torch.Tensor) -> None:
+        """Print activation stats when values are suspiciously large or non-finite."""
+        if not isinstance(t, torch.Tensor) or not t.is_floating_point():
+            return
+        with torch.no_grad():
+            has_nan = torch.isnan(t).any().item()
+            has_inf = torch.isinf(t).any().item()
+            max_abs = t.detach().abs().max().item()
+        if has_nan or has_inf or max_abs > 1e4:
+            print(f"[NaN Debug] activation '{name}': "
+                  f"max_abs={max_abs:.3e}  has_nan={has_nan}  has_inf={has_inf}")
+
     def cal_seg_loss(self, pred: torch.Tensor, gt: torch.Tensor):
         """Compute cross-entropy segmentation loss with bilinear upsampling.
 
@@ -662,15 +675,32 @@ class FFDN(BaseModel):
         if len(qtables.shape) == 3:
             qtables = qtables.unsqueeze(1)
 
+        # --- forward activation monitoring (prints only when values are large / NaN) ---
+        self._check_act("input_image", x)
+        self._check_act("input_dct", DCT_coef.float())
+
         features = self.vph.forward_features(x, end_index=2)
-        features[1] = self.FU(torch.cat((features[1], self.fph(DCT_coef, qtables)), 1)) + features[1]
+        self._check_act("vph_stage0", features[0])
+        self._check_act("vph_stage1_pre_fuse", features[1])
+
+        fph_out = self.fph(DCT_coef, qtables)
+        self._check_act("fph_out", fph_out)
+
+        features[1] = self.FU(torch.cat((features[1], fph_out), 1)) + features[1]
+        self._check_act("vph_stage1_post_fuse", features[1])
+
         features.extend(self.vph.forward_features(features[1], start_index=2, end_index=4))
+        self._check_act("vph_stage2", features[2])
+        self._check_act("vph_stage3", features[3])
 
         decoder_output = self.decoder(features)
         bottleneck = decoder_output[0]
+        self._check_act("decoder_bottleneck", bottleneck)
+
         output_dict = {"visual_loss": {}, "visual_image": {}}
         if not self.training or (self.head is not None and not self.freeze_for_det):
             output = self.head(bottleneck)
+            self._check_act("head_logits", output)
             seg_loss, output = self.cal_seg_loss(output, mask)
             output_dict["pred_mask"] = F.softmax(output, dim=1)[:, 1:]
             output_dict["visual_loss"]["seg_loss"] = seg_loss
