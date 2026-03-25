@@ -288,7 +288,7 @@ class GF(nn.Module):
         self.r = r
         self.eps = eps
         self.boxfilter = BoxFilter(r)
-        self.epss = 1e-6  # numerical guard — 1e-12 was too small (backward ∝ 1/epss² overflows)
+        self.epss = 1e-4  # numerical guard: 1e-12 → 1e-6 → 1e-4 (gradient ∝ 1/epss²)
 
     def forward(self, lr_x, lr_y, hr_x, l_a):
         n_lrx, c_lrx, h_lrx, w_lrx = lr_x.size()
@@ -327,10 +327,12 @@ class GF(nn.Module):
         ## mean_ax
         mean_ax = self.boxfilter(l_a * lr_x) / N
 
-        ## A
+        ## A — clamp prevents catastrophic cancellation (temp≈0) from making A arbitrarily large,
+        ##      which would cascade into b and produce huge gradients via 1/mean_a²
         temp = torch.abs(mean_a2x2 - N * mean_tax * mean_ax)
         A = (mean_a2xy - N * mean_tax * mean_ay) / (temp + self.eps)
-        ## b  — guard against near-zero mean_a (gradient of 1/x^2 overflows when x≈1e-12)
+        A = torch.clamp(A, min=-1e4, max=1e4)
+        ## b
         b = (mean_ay - A * mean_ax) / (mean_a + self.epss)
 
         # --------------------------------
