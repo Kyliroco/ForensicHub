@@ -841,26 +841,236 @@ dist_url: "env://"
 
 ### Running Experiments
 
+There are **4 ways** to launch training, testing, or inference in ForensicHub. Each method uses the YAML config differently, especially regarding distributed training parameters.
+
+---
+
+#### Method 1: `forhub` CLI (Recommended)
+
+The simplest way. The CLI reads the YAML, extracts `gpus` and `flag`, then internally launches `torchrun` with the correct parameters.
+
 ```bash
-# Training
 forhub train /path/to/config.yaml
-
-# Testing
 forhub test /path/to/config.yaml
-
-# Inference
 forhub run /path/to/config.yaml
-
-# Or via shell scripts
-cd ForensicHub/statics
-./run.sh                    # Single experiment (edit paths inside)
-./batch_run.sh              # Batch experiments
-
-# Single image inference (programmatic)
-python ForensicHub/training_scripts/inference.py
 ```
 
-> **Graceful stop**: Touch a file `STOP` in the `log_dir` during training to stop after the current epoch: `touch ./log/my_experiment/STOP`
+**What happens under the hood:**
+1. The CLI reads `gpus` from the YAML (e.g. `"0,1,2,3"`) and counts how many GPUs
+2. Sets `CUDA_VISIBLE_DEVICES` to the GPU IDs
+3. Finds a free port automatically (avoids conflicts between multiple runs)
+4. Launches `torchrun --standalone --nnodes=1 --nproc_per_node=<gpu_count> --master_port=<free_port>`
+5. Stdout goes to `<log_dir>/logs.log`, stderr to `<log_dir>/error.log`
+6. If `log_dir` already exists, a suffix `_1`, `_2`, etc. is automatically appended
+
+**YAML parameters used by forhub CLI:**
+
+| Parameter | Used by CLI | Notes |
+|-----------|:-----------:|-------|
+| `gpus` | Yes | Parsed to set `CUDA_VISIBLE_DEVICES` and compute `nproc_per_node` |
+| `flag` | Yes | Determines which script to run (`train.py`, `test.py`, or `run.py`) |
+| `log_dir` | Yes | Creates the directory, redirects logs there |
+| `world_size` | **Ignored** | Auto-set by `torchrun` via `WORLD_SIZE` env var |
+| `local_rank` | **Ignored** | Auto-set by `torchrun` via `LOCAL_RANK` env var |
+| `dist_url` | **Ignored** | `torchrun --standalone` handles process group init |
+| `dist_on_itp` | **Ignored** | Only for ITP clusters |
+
+> The `flag` field in the YAML is **ignored** by `forhub` CLI — the mode is determined by the subcommand (`forhub train`, `forhub test`, `forhub run`). However, `run.sh` uses `flag` to pick the right script.
+
+---
+
+#### Method 2: `run.sh` Shell Script
+
+The script at `ForensicHub/statics/run.sh` reads the YAML to extract `gpus`, `log_dir`, and `flag`, then launches `torchrun`.
+
+```bash
+# Set the YAML path and run
+yaml_config="/path/to/config.yaml" bash ForensicHub/statics/run.sh
+```
+
+**What happens:**
+1. Reads `gpus`, `log_dir`, and `flag` from the YAML using Python
+2. Counts GPUs from the `gpus` string (e.g. `"4,5"` → 2 GPUs)
+3. Sets `CUDA_VISIBLE_DEVICES` and `PYTHONPATH`
+4. Uses `flag` to choose the script: `train.py`, `test.py`, or `run.py`
+5. Launches `torchrun --standalone --nnodes=1 --nproc_per_node=<gpu_count>`
+6. Redirects stdout/stderr to `<log_dir>/logs.log` and `<log_dir>/error.log`
+
+**YAML parameters used by run.sh:**
+
+| Parameter | Used by run.sh | Notes |
+|-----------|:--------------:|-------|
+| `gpus` | Yes | Sets `CUDA_VISIBLE_DEVICES` + computes `nproc_per_node` |
+| `flag` | Yes | Selects which script to launch (`train`/`test`/`run`) |
+| `log_dir` | Yes | Creates directory, redirects logs |
+| `world_size` | **Ignored** | Auto-set by `torchrun` |
+| `local_rank` | **Ignored** | Auto-set by `torchrun` |
+| `dist_url` | **Ignored** | Handled by `torchrun --standalone` |
+
+**Batch mode** — Run multiple experiments sequentially:
+
+```bash
+# Edit batch_run.sh to list your YAML files
+bash ForensicHub/statics/batch_run.sh
+```
+
+`batch_run.sh` iterates over a list of YAML paths and calls `run.sh` for each one. If one fails, it continues to the next.
+
+**Background mode** — Run in the background with `nohup`:
+
+```bash
+nohup ./run.sh > run.log 2>&1 &
+```
+
+---
+
+#### Method 3: Direct `torchrun` (Advanced)
+
+Launch `torchrun` yourself for full control over distributed parameters. This is useful for multi-node training or custom setups.
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun \
+    --standalone \
+    --nnodes=1 \
+    --nproc_per_node=4 \
+    ForensicHub/training_scripts/train.py \
+    --config /path/to/config.yaml
+```
+
+**What torchrun auto-sets (overrides YAML):**
+
+When you use `torchrun`, it sets environment variables that **override** the corresponding YAML values:
+
+| Env Variable (set by torchrun) | Overrides YAML param | Description |
+|-------------------------------|---------------------|-------------|
+| `RANK` | — | Global rank of the process |
+| `WORLD_SIZE` | `world_size` | Total number of processes |
+| `LOCAL_RANK` | `local_rank` | Local GPU index for this process |
+| `MASTER_ADDR` | `dist_url` (partially) | Address of the master node |
+| `MASTER_PORT` | `dist_url` (partially) | Port for communication |
+
+**YAML parameters behavior with torchrun:**
+
+| Parameter | Behavior | Notes |
+|-----------|----------|-------|
+| `gpus` | **Not used** | You set `CUDA_VISIBLE_DEVICES` yourself |
+| `flag` | **Not used** | You choose the script directly (`train.py`/`test.py`/`run.py`) |
+| `world_size` | **Overridden** | Set by `torchrun` via `WORLD_SIZE` env var |
+| `local_rank` | **Overridden** | Set by `torchrun` via `LOCAL_RANK` env var |
+| `dist_url` | **Overridden** | `torchrun --standalone` sets `MASTER_ADDR`/`MASTER_PORT` |
+| `dist_on_itp` | Must be `false` | Only set to `true` on ITP clusters |
+| All other params | **Used normally** | `batch_size`, `lr`, `epochs`, model, dataset, etc. |
+
+> **Key difference**: With `torchrun`, the YAML parameters `gpus`, `flag`, `world_size`, `local_rank`, and `dist_url` are **not used** — they are either unnecessary or overridden by environment variables. The YAML only provides model/dataset/training hyperparameters.
+
+**Multi-node example:**
+
+```bash
+# On node 0 (master)
+torchrun --nproc_per_node=4 --nnodes=2 --node_rank=0 \
+    --master_addr=192.168.1.1 --master_port=29500 \
+    ForensicHub/training_scripts/train.py --config config.yaml
+
+# On node 1
+torchrun --nproc_per_node=4 --nnodes=2 --node_rank=1 \
+    --master_addr=192.168.1.1 --master_port=29500 \
+    ForensicHub/training_scripts/train.py --config config.yaml
+```
+
+**SLURM cluster:**
+
+The code also detects `SLURM_PROCID` environment variable automatically. On SLURM, you can launch without `torchrun`:
+
+```bash
+srun python ForensicHub/training_scripts/train.py --config config.yaml
+```
+
+---
+
+#### Method 4: Single Image Inference (No YAML)
+
+For quick inference on a single image **without any YAML file**, use `inference.py` directly. Everything is configured in Python code:
+
+```python
+# ForensicHub/training_scripts/inference.py
+import torch
+from PIL import Image
+from torchvision import transforms
+from ForensicHub.registry import MODELS, build_from_registry
+
+# 1. Define model config (replaces YAML model section)
+model_args = {
+    "name": "ConvNextSmall",
+    "init_config": {
+        "image_size": 256
+    },
+    "init_path": "/path/to/checkpoint.pth"
+}
+
+# 2. Build and load model
+model = build_from_registry(MODELS, model_args)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+
+checkpoint = torch.load(model_args['init_path'], map_location=device)
+model.load_state_dict(checkpoint["model"] if "model" in checkpoint else checkpoint)
+model.eval()
+
+# 3. Load and preprocess image (replaces YAML transform section)
+transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+image = transform(Image.open("image.png").convert("RGB")).unsqueeze(0).to(device)
+
+# 4. Run inference (no dataset, no evaluator)
+input_dict = {
+    "image": image,
+    "label": torch.ones(1).to(device),           # pseudo input
+    "mask": torch.ones(1, 1, 256, 256).to(device) # pseudo input
+}
+output = model(**input_dict)
+print(f"Predicted label: {output['pred_label'].item()}")
+```
+
+**No YAML parameters are used.** Everything is hardcoded in Python: model name, checkpoint path, image path, transforms.
+
+| What | Source |
+|------|--------|
+| Model | Python dict (`model_args`) |
+| Checkpoint | `torch.load()` directly |
+| Transform | `torchvision.transforms` (manual) |
+| Dataset | None — single image loaded manually |
+| Evaluator | None — raw output printed |
+| Distributed | None — single GPU only |
+
+---
+
+#### Summary: What's Used in Each Method
+
+| YAML Parameter | `forhub` CLI | `run.sh` | `torchrun` direct | `inference.py` |
+|----------------|:------------:|:--------:|:-----------------:|:--------------:|
+| `gpus` | Read | Read | **Not used** | N/A |
+| `flag` | **Ignored** (subcommand) | Read | **Not used** | N/A |
+| `log_dir` | Read | Read | Read | N/A |
+| `world_size` | **Overridden** | **Overridden** | **Overridden** | N/A |
+| `local_rank` | **Overridden** | **Overridden** | **Overridden** | N/A |
+| `dist_url` | **Overridden** | **Overridden** | **Overridden** | N/A |
+| `dist_on_itp` | **Ignored** | **Ignored** | Read (if ITP) | N/A |
+| `model` | Read | Read | Read | Python dict |
+| `train_dataset` | Read | Read | Read | N/A |
+| `test_dataset` | Read | Read | Read | N/A |
+| `transform` | Read | Read | Read | Manual code |
+| `evaluator` | Read | Read | Read | N/A |
+| `batch_size`, `lr`, ... | Read | Read | Read | N/A |
+| `checkpoint_path` | Read (test/run) | Read (test/run) | Read (test/run) | Manual `torch.load` |
+
+> **Graceful stop**: During training, create a `STOP` file in `log_dir` to stop after the current epoch:
+> ```bash
+> touch ./log/my_experiment/STOP
+> ```
+> The model is saved and the STOP file is removed automatically.
 
 ---
 
