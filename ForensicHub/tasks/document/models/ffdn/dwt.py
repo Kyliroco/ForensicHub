@@ -331,8 +331,7 @@ class GF(nn.Module):
         ##      which would cascade into b and produce huge gradients via 1/mean_a²
         temp = torch.abs(mean_a2x2 - N * mean_tax * mean_ax)
         A = (mean_a2xy - N * mean_tax * mean_ay) / (temp + self.eps)
-        A = torch.clamp(A, min=-1e4, max=1e4)
-        ## b
+        ## b  — guard against near-zero mean_a (gradient of 1/x^2 overflows when x≈1e-12)
         b = (mean_ay - A * mean_ax) / (mean_a + self.epss)
 
         # --------------------------------
