@@ -164,11 +164,16 @@ class LayerNorm(nn.Module):
         if self.data_format == "channels_last":
             return F.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps)
         elif self.data_format == "channels_first":
+            # Cast to fp32 to avoid fp16 overflow when variance is near zero.
+            # F.layer_norm (channels_last path) does this internally; we must
+            # replicate it here to stay numerically stable under AMP.
+            orig_dtype = x.dtype
+            x = x.float()
             u = x.mean(1, keepdim=True)
             s = (x - u).pow(2).mean(1, keepdim=True)
             x = (x - u) / torch.sqrt(s + self.eps)
-            x = self.weight[:, None, None] * x + self.bias[:, None, None]
-            return x
+            x = self.weight.float()[:, None, None] * x + self.bias.float()[:, None, None]
+            return x.to(orig_dtype)
 
 
 if __name__=="__main__":
