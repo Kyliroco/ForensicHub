@@ -329,6 +329,7 @@ class GF(nn.Module):
 
         ## A — clamp prevents catastrophic cancellation (temp≈0) from making A arbitrarily large,
         ##      which would cascade into b and produce huge gradients via 1/mean_a²
+
         temp = torch.abs(mean_a2x2 - N * mean_tax * mean_ax)
         A = (mean_a2xy - N * mean_tax * mean_ay) / (temp + self.eps)
         A = torch.clamp(A, min=-10, max=10)  # fp16-safe: was ±1e4, but mean_A*hr_x could exceed fp16 max (~65504)
