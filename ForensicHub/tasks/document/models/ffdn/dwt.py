@@ -231,10 +231,14 @@ class ARB(nn.Module):
             self.std_conv3 = ConvLayer(16, 1, 1, 1)
 
     def PONO(self, x, epsilon=1e-5):
+        # Compute in fp32 to avoid fp16 overflow when variance is near zero
+        # (same issue as channels_first LayerNorm under AMP).
+        orig_dtype = x.dtype
+        x = x.float()
         mean = x.mean(dim=1, keepdim=True)
         std = x.var(dim=1, keepdim=True).add(epsilon).sqrt()
         output = (x - mean) / std
-        return output, mean, std
+        return output.to(orig_dtype), mean.to(orig_dtype), std.to(orig_dtype)
 
     def forward(self, x):
         if self.lf:
