@@ -281,7 +281,7 @@ class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
 
     def __init__(self):
-        self._scaler = torch.amp.GradScaler("cuda")
+        self._scaler = torch.amp.GradScaler("cuda", init_scale=2**10)
         self._nan_skip_count = 0
         self._last_nan_skipped = False
 
