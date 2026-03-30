@@ -23,12 +23,6 @@ if_predict_mask: false
 # Output
 output_base_dir: /home/user/data
 
-# Optional score threshold: separate results into above_score/ and below_score/
-# folders based on the predicted label score.
-# A detailed score_details.csv is always saved with per-image scores.
-# Can also be set per-dataset.
-# score_threshold: 0.5
-
 # Model
 model:
   name: Resnet101
@@ -63,7 +57,9 @@ transform:
   init_config:
     norm_type: image_net
 
-# Evaluators (optional) - compute metrics on inference results
+# Evaluators (optional) - compute aggregate metrics and filter results.
+# The evaluator's threshold is used to separate results into
+# above_score/ and below_score/ folders with per-image score details.
 # evaluator:
 #   - name: ImageAP
 #   - name: ImageMCC

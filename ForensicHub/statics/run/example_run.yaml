@@ -29,13 +29,6 @@ output_base_dir: /home/user/data
 # Can also be set per-dataset (see run_dataset below).
 # threshold: 0.5
 
-# Optional score threshold: separate inference results into two folders
-# (above_score/ and below_score/) based on the prediction score.
-# For label predictions, score = pred_label value.
-# For mask predictions, score = mean pixel value (or pred_label if available).
-# A detailed score_details.csv is always saved with per-image scores.
-# Can also be set per-dataset.
-# score_threshold: 0.5
 
 # ---- Model ----
 model:
@@ -94,7 +87,6 @@ run_dataset:
     dataset_name: rtm
     output_dir: rtm
     # threshold: 0.3    # per-dataset pixel threshold override
-    # score_threshold: 0.4  # per-dataset score threshold override
     # Per-dataset evaluator override (optional):
     # evaluator:
     #   - name: ImageAP
@@ -119,6 +111,8 @@ transform:
 # Evaluators compute metrics (AP, MCC, TPR, TNR, etc.) on inference results.
 # Requires ground truth labels in the dataset.
 # Results are saved to evaluator_results.json in each dataset's output dir.
+# The threshold from the evaluator is used to separate results into
+# above_score/ and below_score/ folders, with a detailed score_details.csv.
 # evaluator:
 #   - name: ImageAP
 #   - name: ImageMCC

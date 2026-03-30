@@ -59,6 +59,62 @@ def apply_threshold(pred, threshold):
     return pred
 
 
+def compute_per_image_score(pred, label, mask, evaluator, ev_threshold):
+    """Compute a per-image score using the evaluator's metric type.
+
+    For image-level evaluators (ImageAP, ImageMCC, ImageTPR, ImageTNR):
+        The score is the pred_label value itself (confidence).
+
+    For pixel-level evaluators (PixelF1, PixelIOU):
+        Computes the metric on this single image's pred_mask vs ground truth mask.
+
+    Returns (score, metric_name).
+    """
+    ev_name = evaluator.name.lower()
+
+    # Image-level: the score is simply the prediction confidence
+    if 'image' in ev_name or 'ap' in ev_name:
+        if pred is not None:
+            return float(pred), evaluator.name
+        return float(label) if label is not None else 0.0, evaluator.name
+
+    # Pixel-level metrics: compute per-image
+    if mask is None:
+        return 0.0, evaluator.name
+
+    # Binarize prediction with evaluator threshold
+    pred_bin = (mask >= ev_threshold).astype(np.float32) if isinstance(mask, np.ndarray) else (mask >= ev_threshold).float()
+    gt = label  # For pixel-level, label is the ground truth mask
+
+    if isinstance(pred_bin, np.ndarray):
+        pred_flat = pred_bin.flatten()
+        gt_flat = gt.flatten().astype(np.float32) if isinstance(gt, np.ndarray) else gt.cpu().numpy().flatten().astype(np.float32)
+    else:
+        pred_flat = pred_bin.flatten().cpu().numpy()
+        gt_flat = gt.flatten().cpu().numpy().astype(np.float32)
+
+    # Binarize ground truth
+    gt_flat = (gt_flat > 0.5).astype(np.float32)
+
+    tp = np.sum(pred_flat * gt_flat)
+    fp = np.sum(pred_flat * (1 - gt_flat))
+    fn = np.sum((1 - pred_flat) * gt_flat)
+
+    if 'iou' in ev_name:
+        score = tp / (tp + fp + fn + 1e-9)
+    elif 'f1' in ev_name:
+        precision = tp / (tp + fp + 1e-9)
+        recall = tp / (tp + fn + 1e-9)
+        score = 2 * precision * recall / (precision + recall + 1e-9)
+    else:
+        # Fallback: use F1
+        precision = tp / (tp + fp + 1e-9)
+        recall = tp / (tp + fn + 1e-9)
+        score = 2 * precision * recall / (precision + recall + 1e-9)
+
+    return float(score), evaluator.name
+
+
 def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
     # Init distributed mode
     misc.init_distributed_mode(args)
@@ -148,7 +204,6 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
     # Global settings
     output_base_dir = getattr(args, 'output_base_dir', './run_output')
     threshold = getattr(args, 'threshold', None)
-    score_threshold = getattr(args, 'score_threshold', None)
     predict_mask = getattr(args, 'if_predict_mask', False)
     predict_label = getattr(args, 'if_predict_label', True)
 
@@ -165,14 +220,20 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
         output_subdir = ds_args.get("output_dir", dataset_name)
         output_dir = os.path.join(output_base_dir, output_subdir)
 
-        # Per-dataset threshold override
+        # Per-dataset pixel threshold override
         ds_threshold = ds_args.get("threshold", threshold)
-        ds_score_threshold = ds_args.get("score_threshold", score_threshold)
 
         # Evaluators for this dataset
         ds_evaluator_list = per_dataset_evaluators.get(dataset_name, evaluator_list)
         for ev in ds_evaluator_list:
             ev.recovery()
+
+        # Get the score filtering threshold from the first evaluator that has one
+        ev_threshold = None
+        for ev in ds_evaluator_list:
+            if hasattr(ev, 'threshold'):
+                ev_threshold = ev.threshold
+                break
 
         # Track per-image scores and names
         all_names = []
@@ -183,9 +244,9 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
             Fore.CYAN + f"\n{'='*60}\n"
             f"  RUN >> {dataset_name}\n"
             f"  Output: {output_dir}\n"
-            f"  Threshold: {ds_threshold}\n"
-            f"  Score threshold: {ds_score_threshold}\n"
+            f"  Pixel threshold: {ds_threshold}\n"
             f"  Evaluators: {[e.name for e in ds_evaluator_list]}\n"
+            f"  Evaluator threshold (for filtering): {ev_threshold}\n"
             f"{'='*60}" + Style.RESET_ALL
         )
 
@@ -337,19 +398,36 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                             ev.batch_update(ev_preds.to(device), labels_tensor)
 
                     # Direct save (no sliding window)
+                    gt_masks = data_dict.get('mask', None)
                     for i, name in enumerate(names):
                         pred = preds[i]
 
-                        # Apply threshold if specified
+                        # Apply pixel threshold if specified
                         if ds_threshold is not None:
                             pred = apply_threshold(pred, ds_threshold)
 
-                        # Compute per-image score (use pred_label if available, else mask mean)
-                        if 'pred_label' in output_dict:
-                            ev_preds_np = output_dict['pred_label']
-                            if isinstance(ev_preds_np, torch.Tensor):
-                                ev_preds_np = ev_preds_np.detach().cpu().numpy()
-                            score_val = float(ev_preds_np[i].item() if ev_preds_np[i].size == 1 else ev_preds_np[i].flatten()[0])
+                        # Compute per-image score via evaluator
+                        if ds_evaluator_list and ev_threshold is not None:
+                            pred_label_val = None
+                            if 'pred_label' in output_dict:
+                                pl = output_dict['pred_label']
+                                if isinstance(pl, torch.Tensor):
+                                    pl = pl.detach().cpu().numpy()
+                                pred_label_val = float(pl[i].item() if pl[i].size == 1 else pl[i].flatten()[0])
+
+                            gt_mask_i = gt_masks[i] if gt_masks is not None else None
+                            score_val, _ = compute_per_image_score(
+                                pred=pred_label_val,
+                                label=gt_mask_i,
+                                mask=pred,
+                                evaluator=ds_evaluator_list[0],
+                                ev_threshold=ev_threshold
+                            )
+                        elif 'pred_label' in output_dict:
+                            pl = output_dict['pred_label']
+                            if isinstance(pl, torch.Tensor):
+                                pl = pl.detach().cpu().numpy()
+                            score_val = float(pl[i].item() if pl[i].size == 1 else pl[i].flatten()[0])
                         else:
                             score_val = float(np.mean(pred))
 
@@ -451,8 +529,8 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                 else:
                     f.write("name,score,classification\n")
                 for name, score, label_val in zip(all_names, all_scores, all_labels):
-                    if ds_score_threshold is not None:
-                        classification = "above" if score >= ds_score_threshold else "below"
+                    if ev_threshold is not None:
+                        classification = "above" if score >= ev_threshold else "below"
                     else:
                         classification = "N/A"
                     if has_labels:
@@ -463,7 +541,7 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
             print(f"  Score details saved to {score_csv_path}")
 
             # Score-based folder separation
-            if ds_score_threshold is not None:
+            if ev_threshold is not None:
                 above_dir = os.path.join(output_dir, "above_score")
                 below_dir = os.path.join(output_dir, "below_score")
                 os.makedirs(above_dir, exist_ok=True)
@@ -476,7 +554,7 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                 above_entries = []
                 below_entries = []
                 for name, score, label_val in zip(all_names, all_scores, all_labels):
-                    if score >= ds_score_threshold:
+                    if score >= ev_threshold:
                         above_entries.append((name, score, label_val))
                         count_above += 1
                     else:
@@ -500,7 +578,7 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                 if predict_mask:
                     for name, score, label_val in zip(all_names, all_scores, all_labels):
                         clean_name = os.path.splitext(os.path.basename(str(name)))[0]
-                        target_dir = above_dir if score >= ds_score_threshold else below_dir
+                        target_dir = above_dir if score >= ev_threshold else below_dir
 
                         # Find source image in output_dir
                         if label_val is not None:
@@ -513,7 +591,7 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                             shutil.copy2(src_path, dst_path)
 
                 print(
-                    Fore.GREEN + f"  Score filtering (threshold={ds_score_threshold}):\n"
+                    Fore.GREEN + f"  Score filtering (threshold={ev_threshold}):\n"
                     f"    Above: {count_above} samples -> {above_dir}\n"
                     f"    Below: {count_below} samples -> {below_dir}" + Style.RESET_ALL
                 )
