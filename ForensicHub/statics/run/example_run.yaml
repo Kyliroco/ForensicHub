@@ -29,6 +29,7 @@ output_base_dir: /home/user/data
 # Can also be set per-dataset (see run_dataset below).
 # threshold: 0.5
 
+
 # ---- Model ----
 model:
   name: FFDN
@@ -85,7 +86,13 @@ run_dataset:
   - name: DocDataset
     dataset_name: rtm
     output_dir: rtm
-    # threshold: 0.3    # per-dataset threshold override
+    # threshold: 0.3    # per-dataset pixel threshold override
+    # Per-dataset evaluator override (optional):
+    # evaluator:
+    #   - name: ImageAP
+    #   - name: ImageMCC
+    #     init_config:
+    #       threshold: 0.5
     init_config:
       get_dct_qtb: true
       path: /path/to/RTM
@@ -99,6 +106,21 @@ transform:
   init_config:
     norm_type: image_net
     compression_type: cv
+
+# ---- Evaluators (optional) ----
+# Evaluators compute metrics (AP, MCC, TPR, TNR, etc.) on inference results.
+# Requires ground truth labels in the dataset.
+# Results are saved to evaluator_results.json in each dataset's output dir.
+# The threshold from the evaluator is used to separate results into
+# above_score/ and below_score/ folders, with a detailed score_details.csv.
+# evaluator:
+#   - name: ImageAP
+#   - name: ImageMCC
+#     init_config:
+#       threshold: 0.5
+#   - name: ImageTPR
+#     init_config:
+#       threshold: 0.5
 
 # ---- Inference settings ----
 batch_size: 8
