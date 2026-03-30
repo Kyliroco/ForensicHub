@@ -23,6 +23,12 @@ if_predict_mask: false
 # Output
 output_base_dir: /home/user/data
 
+# Optional score threshold: separate results into above_score/ and below_score/
+# folders based on the predicted label score.
+# A detailed score_details.csv is always saved with per-image scores.
+# Can also be set per-dataset.
+# score_threshold: 0.5
+
 # Model
 model:
   name: Resnet101

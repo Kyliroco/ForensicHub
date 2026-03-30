@@ -125,6 +125,7 @@ def main(args, model_args, run_dataset_args, transform_args):
     # Global settings
     output_base_dir = getattr(args, 'output_base_dir', './run_output')
     threshold = getattr(args, 'threshold', None)
+    score_threshold = getattr(args, 'score_threshold', None)
     predict_mask = getattr(args, 'if_predict_mask', False)
     predict_label = getattr(args, 'if_predict_label', True)
 
@@ -143,14 +144,19 @@ def main(args, model_args, run_dataset_args, transform_args):
 
         # Per-dataset threshold override
         ds_threshold = ds_args.get("threshold", threshold)
+        ds_score_threshold = ds_args.get("score_threshold", score_threshold)
 
         print(
             Fore.CYAN + f"\n{'='*60}\n"
             f"  RUN >> {dataset_name}\n"
             f"  Output: {output_dir}\n"
-            f"  Threshold: {ds_threshold}\n"
+            f"  Pixel threshold: {ds_threshold}\n"
+            f"  Score threshold: {ds_score_threshold}\n"
             f"{'='*60}" + Style.RESET_ALL
         )
+
+        # Track all scores for score-based filtering
+        all_scores = []  # list of (name, score, pred_data_or_None)
 
         # Build dataset
         ds_args["init_config"].update({
@@ -238,26 +244,16 @@ def main(args, model_args, run_dataset_args, transform_args):
 
                 # Handle label-only prediction (no spatial output to save as image)
                 if predict_label and not predict_mask and 'pred_mask' not in output_dict:
-                    # Save label predictions to a text/csv file
                     for i, name in enumerate(names):
                         pred_val = pred_labels[i] if isinstance(pred_labels, np.ndarray) else pred_labels
                         if isinstance(pred_val, np.ndarray):
                             pred_val = pred_val.item() if pred_val.size == 1 else pred_val.flatten()[0]
 
-                        # Determine subfolder by label if available
+                        label_val = None
                         if labels is not None:
                             label_val = labels[i].item() if isinstance(labels[i], torch.Tensor) else int(labels[i])
-                            subfolder = os.path.join(output_dir, f"label_{label_val}")
-                        else:
-                            subfolder = output_dir
 
-                        os.makedirs(subfolder, exist_ok=True)
-                        # Append to predictions file
-                        pred_file = os.path.join(output_dir, "predictions.csv")
-                        with open(pred_file, 'a') as f:
-                            if os.path.getsize(pred_file) == 0 if os.path.exists(pred_file) else True:
-                                f.write("name,pred_label\n")
-                            f.write(f"{name},{pred_val:.6f}\n")
+                        all_scores.append((str(name), float(pred_val), label_val, None))
                     continue
 
                 # For mask predictions - handle sliding window or direct save
@@ -297,15 +293,17 @@ def main(args, model_args, run_dataset_args, transform_args):
                         if ds_threshold is not None:
                             pred = apply_threshold(pred, ds_threshold)
 
-                        # Determine subfolder by label if available
+                        label_val = None
                         if labels is not None:
                             label_val = labels[i].item() if isinstance(labels[i], torch.Tensor) else int(labels[i])
-                            subfolder = os.path.join(output_dir, f"label_{label_val}")
-                        else:
-                            subfolder = output_dir
 
-                        # Clean name for filename
+                        # Compute score from mask (mean of prediction values)
+                        mask_score = float(np.mean(pred))
+                        all_scores.append((str(name), mask_score, label_val, pred))
+
+                        # Save to base output_dir (score filtering happens after loop)
                         clean_name = os.path.splitext(os.path.basename(str(name)))[0]
+                        subfolder = output_dir
                         save_path = os.path.join(subfolder, f"{clean_name}.png")
                         save_prediction_image(pred, save_path)
 
@@ -336,18 +334,88 @@ def main(args, model_args, run_dataset_args, transform_args):
                 if ds_threshold is not None:
                     pred = apply_threshold(pred, ds_threshold)
 
-                # Determine subfolder by label if available
-                if img_name in sw_all_labels:
-                    label_val = sw_all_labels[img_name]
-                    subfolder = os.path.join(output_dir, f"label_{label_val}")
-                else:
-                    subfolder = output_dir
+                label_val = sw_all_labels.get(img_name, None)
+                mask_score = float(np.mean(pred))
+                all_scores.append((str(img_name), mask_score, label_val, pred))
 
                 clean_name = os.path.splitext(os.path.basename(str(img_name)))[0]
+                subfolder = output_dir
                 save_path = os.path.join(subfolder, f"{clean_name}.png")
                 save_prediction_image(pred, save_path)
 
             print(f"  Saved merged predictions to {output_dir}")
+
+        # ---- Score-based filtering and detailed CSV ----
+        if all_scores:
+            # Write detailed score CSV
+            score_csv_path = os.path.join(output_dir, "score_details.csv")
+            has_labels = any(s[2] is not None for s in all_scores)
+            with open(score_csv_path, 'w') as f:
+                if has_labels:
+                    f.write("name,score,ground_truth_label,classification\n")
+                else:
+                    f.write("name,score,classification\n")
+                for name, score, label_val, _ in all_scores:
+                    if ds_score_threshold is not None:
+                        classification = "above" if score >= ds_score_threshold else "below"
+                    else:
+                        classification = "N/A"
+                    if has_labels:
+                        gt = label_val if label_val is not None else ""
+                        f.write(f"{name},{score:.6f},{gt},{classification}\n")
+                    else:
+                        f.write(f"{name},{score:.6f},{classification}\n")
+            print(f"  Score details saved to {score_csv_path}")
+
+            # Score-based folder separation
+            if ds_score_threshold is not None:
+                above_dir = os.path.join(output_dir, "above_score")
+                below_dir = os.path.join(output_dir, "below_score")
+                os.makedirs(above_dir, exist_ok=True)
+                os.makedirs(below_dir, exist_ok=True)
+
+                count_above = 0
+                count_below = 0
+
+                for name, score, label_val, pred_data in all_scores:
+                    clean_name = os.path.splitext(os.path.basename(str(name)))[0]
+                    target_dir = above_dir if score >= ds_score_threshold else below_dir
+
+                    if pred_data is not None:
+                        # Mask prediction: save image copy to filtered folder
+                        save_path = os.path.join(target_dir, f"{clean_name}.png")
+                        save_prediction_image(pred_data, save_path)
+                    else:
+                        # Label-only prediction: no image to copy, recorded in CSV
+                        pass
+
+                    if score >= ds_score_threshold:
+                        count_above += 1
+                    else:
+                        count_below += 1
+
+                # Write summary CSV per folder
+                for folder, label in [(above_dir, "above"), (below_dir, "below")]:
+                    summary_path = os.path.join(folder, "predictions.csv")
+                    entries = [(n, s, l) for n, s, l, _ in all_scores
+                               if (label == "above" and s >= ds_score_threshold) or
+                                  (label == "below" and s < ds_score_threshold)]
+                    with open(summary_path, 'w') as f:
+                        if has_labels:
+                            f.write("name,score,ground_truth_label\n")
+                            for n, s, l in entries:
+                                gt = l if l is not None else ""
+                                f.write(f"{n},{s:.6f},{gt}\n")
+                        else:
+                            f.write("name,score\n")
+                            for n, s, _ in entries:
+                                f.write(f"{n},{s:.6f}\n")
+
+                print(
+                    Fore.GREEN + f"  Score filtering (threshold={ds_score_threshold}):\n"
+                    f"    Above: {count_above} samples -> {above_dir}\n"
+                    f"    Below: {count_below} samples -> {below_dir}" + Style.RESET_ALL
+                )
 
         ds_time = time.time() - start_time
         print(f"  Done with {dataset_name} in {str(datetime.timedelta(seconds=int(ds_time)))}")
