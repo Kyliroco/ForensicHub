@@ -139,7 +139,11 @@ class ETM(nn.Module):
         x3 = self.branch3(x)
         x_cat = self.conv_cat(torch.cat((x0, x1, x2, x3), 1))
 
-        x = self.relu(x_cat + self.conv_res(x))
+        # Force fp32 for residual conv to prevent fp16 gradient overflow
+        # (1x1 conv with large channel count can overflow in backward)
+        with torch.amp.autocast("cuda", enabled=False):
+            x_res = self.conv_res(x.float())
+        x = self.relu(x_cat + x_res)
         return x
 
 
@@ -361,9 +365,17 @@ class AGF(nn.Module):
 
     def forward(self, high_level, low_level):
         N, C, H, W = high_level.size()
-        high_level_small = F.interpolate(high_level, size=(int(H / 2), int(W / 2)), mode='bilinear', align_corners=True)
-        y = self.ARB(low_level)
-        y = self.GF(high_level_small, low_level, high_level, y)
+        # Disable autocast so inputs enter GF as fp32 instead of fp16.
+        # GF internally converts to float64; during backward, gradients
+        # flow back through the dtype cast nodes. If the original dtype
+        # was fp16, the double→fp16 conversion can overflow (fp16 max
+        # ~65504), producing NaN that cascades to all 692 VPH layers.
+        with torch.amp.autocast("cuda", enabled=False):
+            high_level = high_level.float()
+            low_level = low_level.float()
+            high_level_small = F.interpolate(high_level, size=(int(H / 2), int(W / 2)), mode='bilinear', align_corners=True)
+            y = self.ARB(low_level)
+            y = self.GF(high_level_small, low_level, high_level, y)
         return y
 
 
