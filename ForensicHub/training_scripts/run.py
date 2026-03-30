@@ -521,6 +521,13 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
         if all_names:
             has_labels = any(l is not None for l in all_labels)
 
+            def _classify(score, threshold):
+                if threshold is None:
+                    return "N/A"
+                if np.isnan(score) or np.isinf(score):
+                    return "nan"
+                return "above" if score >= threshold else "below"
+
             # Write detailed score CSV
             score_csv_path = os.path.join(output_dir, "score_details.csv")
             with open(score_csv_path, 'w') as f:
@@ -529,56 +536,74 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                 else:
                     f.write("name,score,classification\n")
                 for name, score, label_val in zip(all_names, all_scores, all_labels):
-                    if ev_threshold is not None:
-                        classification = "above" if score >= ev_threshold else "below"
-                    else:
-                        classification = "N/A"
+                    classification = _classify(score, ev_threshold)
+                    score_str = f"{score:.6f}" if not (np.isnan(score) or np.isinf(score)) else str(score)
                     if has_labels:
                         gt = label_val if label_val is not None else ""
-                        f.write(f"{name},{score:.6f},{gt},{classification}\n")
+                        f.write(f"{name},{score_str},{gt},{classification}\n")
                     else:
-                        f.write(f"{name},{score:.6f},{classification}\n")
+                        f.write(f"{name},{score_str},{classification}\n")
             print(f"  Score details saved to {score_csv_path}")
 
             # Score-based folder separation
             if ev_threshold is not None:
                 above_dir = os.path.join(output_dir, "above_score")
                 below_dir = os.path.join(output_dir, "below_score")
+                nan_dir = os.path.join(output_dir, "nan_score")
                 os.makedirs(above_dir, exist_ok=True)
                 os.makedirs(below_dir, exist_ok=True)
 
                 count_above = 0
                 count_below = 0
+                count_nan = 0
 
-                # Write per-folder CSV with details
                 above_entries = []
                 below_entries = []
+                nan_entries = []
                 for name, score, label_val in zip(all_names, all_scores, all_labels):
-                    if score >= ev_threshold:
+                    if np.isnan(score) or np.isinf(score):
+                        nan_entries.append((name, score, label_val))
+                        count_nan += 1
+                    elif score >= ev_threshold:
                         above_entries.append((name, score, label_val))
                         count_above += 1
                     else:
                         below_entries.append((name, score, label_val))
                         count_below += 1
 
-                for folder, entries in [(above_dir, above_entries), (below_dir, below_entries)]:
+                # Only create nan_dir if there are nan scores
+                if nan_entries:
+                    os.makedirs(nan_dir, exist_ok=True)
+
+                all_folders = [(above_dir, above_entries), (below_dir, below_entries)]
+                if nan_entries:
+                    all_folders.append((nan_dir, nan_entries))
+
+                for folder, entries in all_folders:
                     csv_path = os.path.join(folder, "predictions.csv")
                     with open(csv_path, 'w') as f:
                         if has_labels:
                             f.write("name,score,ground_truth_label\n")
                             for n, s, l in entries:
                                 gt = l if l is not None else ""
-                                f.write(f"{n},{s:.6f},{gt}\n")
+                                s_str = f"{s:.6f}" if not (np.isnan(s) or np.isinf(s)) else str(s)
+                                f.write(f"{n},{s_str},{gt}\n")
                         else:
                             f.write("name,score\n")
                             for n, s, _ in entries:
-                                f.write(f"{n},{s:.6f}\n")
+                                s_str = f"{s:.6f}" if not (np.isnan(s) or np.isinf(s)) else str(s)
+                                f.write(f"{n},{s_str}\n")
 
                 # Copy mask images to filtered folders if mask prediction
                 if predict_mask:
                     for name, score, label_val in zip(all_names, all_scores, all_labels):
                         clean_name = os.path.splitext(os.path.basename(str(name)))[0]
-                        target_dir = above_dir if score >= ev_threshold else below_dir
+                        if np.isnan(score) or np.isinf(score):
+                            target_dir = nan_dir
+                        elif score >= ev_threshold:
+                            target_dir = above_dir
+                        else:
+                            target_dir = below_dir
 
                         # Find source image in output_dir
                         if label_val is not None:
@@ -587,14 +612,18 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                             src_path = os.path.join(output_dir, f"{clean_name}.png")
 
                         if os.path.exists(src_path):
+                            os.makedirs(target_dir, exist_ok=True)
                             dst_path = os.path.join(target_dir, f"{clean_name}.png")
                             shutil.copy2(src_path, dst_path)
 
-                print(
+                msg = (
                     Fore.GREEN + f"  Score filtering (threshold={ev_threshold}):\n"
                     f"    Above: {count_above} samples -> {above_dir}\n"
-                    f"    Below: {count_below} samples -> {below_dir}" + Style.RESET_ALL
+                    f"    Below: {count_below} samples -> {below_dir}"
                 )
+                if count_nan > 0:
+                    msg += f"\n    NaN/Inf: {count_nan} samples -> {nan_dir}"
+                print(msg + Style.RESET_ALL)
 
         ds_time = time.time() - start_time
         print(f"  Done with {dataset_name} in {str(datetime.timedelta(seconds=int(ds_time)))}")
