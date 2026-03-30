@@ -38,7 +38,10 @@ class Block(nn.Module):
 
     def forward(self, x):
         input = x
-        x = self.dwconv(x)
+        # Force fp32 for 7x7 depthwise conv to prevent fp16 gradient overflow
+        # (each output sums 49 products; backward can exceed fp16 range ~65504)
+        with torch.amp.autocast("cuda", enabled=False):
+            x = self.dwconv(x.float())
         x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
         x = self.norm(x)
         x = self.pwconv1(x)
