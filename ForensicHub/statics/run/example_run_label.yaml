@@ -63,6 +63,13 @@ transform:
   init_config:
     norm_type: image_net
 
+# Evaluators (optional) - compute metrics on inference results
+# evaluator:
+#   - name: ImageAP
+#   - name: ImageMCC
+#     init_config:
+#       threshold: 0.5
+
 # Inference settings
 batch_size: 32
 no_model_eval: false
