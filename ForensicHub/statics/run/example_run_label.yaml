@@ -1,0 +1,68 @@
+# ============================================================
+# ForensicHub - Run (Inference) - Label prediction example
+# ============================================================
+# Runs a classification model on images and saves predictions
+# to a CSV file. If labels exist, outputs are organized by
+# label value into separate subdirectories.
+#
+# Usage:
+#   forhub run ./example_run_label.yaml
+# ============================================================
+
+# DDP
+gpus: "0"
+flag: run
+
+# Log
+log_dir: "./log/run_label_inference"
+
+# Task
+if_predict_label: true
+if_predict_mask: false
+
+# Output
+output_base_dir: /home/user/data
+
+# Model
+model:
+  name: Resnet101
+  init_config:
+    output_type: label
+    image_size: 256
+
+# Checkpoint
+checkpoint_path: /path/to/checkpoint-best.pth
+
+# Datasets
+run_dataset:
+  - name: AIGCLabelDataset
+    dataset_name: diffusion_forensics
+    output_dir: diffusion_forensics
+    init_config:
+      image_size: 256
+      path: /path/to/test.json
+
+  - name: AIGCCrossDataset
+    dataset_name: genimage
+    output_dir: genimage
+    init_config:
+      image_size: 256
+      path:
+        - /path/to/ADM_val.json
+        - /path/to/BigGAN_val.json
+
+# Transform (optional)
+transform:
+  name: AIGCTransform
+  init_config:
+    norm_type: image_net
+
+# Inference settings
+batch_size: 32
+no_model_eval: false
+device: "cuda"
+seed: 42
+num_workers: 8
+pin_mem: true
+dist_on_itp: false
+dist_url: "env://"

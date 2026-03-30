@@ -7,10 +7,11 @@ from colorama import init, Fore, Style
 # from ForensicHub.utils.paths import BencoPath
 from ForensicHub.cli_funcs import (
     cli_init,
-    cli_guide, 
+    cli_guide,
     cli_data,
     cli_train,
-    cli_test
+    cli_test,
+    cli_run
 )
 import importlib.metadata 
 
@@ -19,7 +20,8 @@ COMMAND_MAP = {
     'guide': cli_guide,
     'data': cli_data,
     'train': cli_train,
-    'test': cli_test
+    'test': cli_test,
+    'run': cli_run
 }
 
 PYPI_API_URL = 'https://pypi.org/pypi/ForensicHub/json'
@@ -82,6 +84,10 @@ def main():
     # test command
     parser_test = subparsers.add_parser('test', help='Test the model with given path to yaml')
     parser_test.add_argument('yaml', type=str, help='Path to the configuration file')
+
+    # run command (inference)
+    parser_run = subparsers.add_parser('run', help='Run inference on images with given path to yaml')
+    parser_run.add_argument('yaml', type=str, help='Path to the configuration file')
     
     # parser.add_argument('--config', type=str, help='Path to the configuration file')
     
@@ -98,6 +104,8 @@ def main():
         cli_train(args.yaml)
     elif args.command == 'test':
         cli_test(args.yaml)
+    elif args.command == 'run':
+        cli_run(args.yaml)
 
         
     # elif args.command == 'guide':

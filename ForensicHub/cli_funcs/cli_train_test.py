@@ -11,6 +11,7 @@ from .copy import copy_files, copy_file
 
 from ForensicHub.training_scripts import train as train_script
 from ForensicHub.training_scripts import test as test_script
+from ForensicHub.training_scripts import run as run_script
 
 
 def get_unique_log_dir(base_dir):
@@ -108,9 +109,9 @@ def excute_script(yaml_path, script_path):
     """
     这里暂时没用flag区分train-test，而是直接通过`forhub test`或者`forhub train`来区分
     """
-    # flag should be "train" or "test"
-    if flag not in ["train", "test"]:
-        print(Fore.RED + "  The flag in config file should be 'train' or 'test'" + Style.RESET_ALL)
+    # flag should be "train", "test" or "run"
+    if flag not in ["train", "test", "run"]:
+        print(Fore.RED + "  The flag in config file should be 'train', 'test' or 'run'" + Style.RESET_ALL)
         return
 
     # Get unique log_dir with increment suffix if it already exists
@@ -185,3 +186,10 @@ def cli_test(yaml_path):
     print(test_script.__file__)
     print(yaml_path)
     excute_script(yaml_path, test_script.__file__)
+
+def cli_run(yaml_path):
+    """Launch inference (run) with the given YAML config."""
+    print("This is cli for run (inference).")
+    print(run_script.__file__)
+    print(yaml_path)
+    excute_script(yaml_path, run_script.__file__)

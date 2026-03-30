@@ -134,6 +134,946 @@ git clone https://github.com/scu-zjz/ForensicHub.git
 ```
 Also, since ForensicHub is compatible with DeepfakeBench (which hasn’t been uploaded to PyPI), you’ll need to clone our forked version [Site](https://github.com/scu-zjz/DeepfakeBench) locally and install it using: `pip install -e .`.
 
+## 📝 YAML Configuration Guide
+
+---
+
+ForensicHub is entirely **configuration-driven**: you define your experiment in a single YAML file covering the model, datasets, transforms, evaluators, and all training hyperparameters. No code changes are needed to run different experiments.
+
+### Execution Modes
+
+ForensicHub supports three execution modes, set via the `flag` parameter:
+
+| Mode | CLI Command | Description |
+|------|-------------|-------------|
+| `train` | `forhub train config.yaml` | Train a model with train/test datasets |
+| `test` | `forhub test config.yaml` | Evaluate a trained model on test datasets |
+| `run` | `forhub run config.yaml` | Run inference on images (prediction only, no ground truth needed) |
+
+### Global Parameters
+
+These parameters appear at the **root level** of the YAML file.
+
+#### Execution & Hardware
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `gpus` | string | **required** | GPU IDs to use, e.g. `"0,1,2,3"` |
+| `flag` | string | **required** | Execution mode: `train`, `test`, or `run` |
+| `device` | string | `"cuda"` | Device: `"cuda"` or `"cpu"` |
+| `seed` | integer | `42` | Random seed for reproducibility |
+| `num_workers` | integer | `8` | Number of data loading workers |
+| `pin_mem` | boolean | `true` | Pin memory for faster GPU data transfer |
+
+#### Task Type
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `if_predict_label` | boolean | `false` | Model predicts image-level labels (classification) |
+| `if_predict_mask` | boolean | `false` | Model predicts pixel-level masks (localization) |
+
+> At least one must be `true`. Both can be `true` for models that do detection + localization.
+
+#### Logging
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `log_dir` | string | **required** | Directory for logs, checkpoints, and TensorBoard events |
+| `log_per_epoch_count` | integer | `20` | Number of log entries printed per epoch |
+
+#### Training Hyperparameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `batch_size` | integer | - | Training batch size **per GPU** |
+| `test_batch_size` | integer | - | Batch size for validation/testing |
+| `epochs` | integer | - | Total number of training epochs |
+| `accum_iter` | integer | `1` | Gradient accumulation steps (effective batch = `batch_size * num_gpus * accum_iter`) |
+| `record_epoch` | integer | `0` | Only save best checkpoint after this epoch |
+| `test_period` | integer | `1` | Run validation every N epochs |
+
+#### Optimizer (AdamW)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `lr` | float | - | Learning rate. If not set, computed from `blr`: `lr = blr * effective_batch / 256` |
+| `blr` | float | `0.1` | Base learning rate (used when `lr` is not specified) |
+| `weight_decay` | float | `0.05` | L2 regularization weight |
+| `min_lr` | float | - | Minimum learning rate for cosine annealing scheduler |
+| `warmup_epochs` | integer | `1` | Number of linear warmup epochs before cosine decay |
+
+> **LR Schedule**: Cosine annealing with linear warmup. Formula: `lr = min_lr + (lr - min_lr) * 0.5 * (1 + cos(pi * t / T))`
+
+#### Distributed Training (DDP) & AMP
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `find_unused_parameters` | boolean | `true` | Allow unused parameters in DDP (needed for some models) |
+| `use_amp` | boolean | `false` | Enable Automatic Mixed Precision for faster training |
+| `world_size` | integer | `1` | Total number of distributed processes |
+| `local_rank` | integer | `-1` | Local rank (auto-set by DDP launcher) |
+| `dist_on_itp` | boolean | `false` | Use ITP cluster distributed init |
+| `dist_url` | string | `"env://"` | URL for distributed process group initialization |
+
+#### Checkpoint & Resume
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `resume` | string | `""` | Path to a checkpoint to resume training from |
+| `start_epoch` | integer | `0` | Starting epoch (auto-set when resuming) |
+| `checkpoint_path` | string | - | Path to checkpoint for `test` and `run` modes |
+| `no_model_eval` | boolean | `false` | If `true`, skip calling `model.eval()` during testing |
+
+#### Inference-Only (flag: run)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `output_base_dir` | string | `"./run_output"` | Base output directory for predictions |
+| `threshold` | float | - | Global prediction threshold (can be overridden per dataset) |
+
+#### Miscellaneous
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dataset_percentage` | float | - | Use only N% of the dataset (for ablation studies, value 0-100) |
+
+---
+
+### Model Configuration
+
+The `model` block defines which model to use and its initialization parameters.
+
+```yaml
+model:
+  name: <MODEL_NAME>
+  post_func_name: <POST_FUNC>   # Optional: override post-processing function
+  init_config:
+    <model-specific parameters>
+```
+
+#### Available Models
+
+<details>
+<summary><b>AIGC Detection Models</b> (7 models)</summary>
+
+| Name | Description | Key init_config |
+|------|-------------|-----------------|
+| `Dire` | DIRE — Diffusion-based reconstruction error | `guided_diffusion_path`, `model_path` |
+| `HiFi_Net` | HiFi-Net — Hierarchical fine-grained detection | - |
+| `DualNet` | DualNet — RGB + Noise dual-path network | - |
+| `Synthbuster` | SynthBuster — Synthetic image detector | - |
+| `UnivFD` | UnivFD — Universal fake detector (CLIP-based) | - |
+| `FatFormer` | FatFormer — Frequency-aware transformer | - |
+| `CO_SPY` | CO-SPY — Contrastive learning detector | - |
+
+</details>
+
+<details>
+<summary><b>Document Manipulation Models</b> (6 models)</summary>
+
+| Name | Description | Key init_config |
+|------|-------------|-----------------|
+| `DTD` | Document Tampering Detection | `convnext_path`, `swin_path` |
+| `FFDN` | Fast Forensic Detection Network | `weight_path` (ConvNeXT pretrained) |
+| `PSNet` | PSNet | - |
+| `Tifdm` | TIFDM | - |
+| `ADCDNet` | Attention-based Document Change Detection | `cls_n`, `loc_out_dim`, `dct_feat_dim`, `ce_weight`, `rec_weight`, ... |
+| `CAFTB_Net` | CAFTB-Net (SegFormer-based) | - |
+
+</details>
+
+<details>
+<summary><b>Deepfake Detection Models</b> (3 built-in + DeepfakeBench)</summary>
+
+| Name | Description |
+|------|-------------|
+| `Spsl` | SPSL — Spatial Phase Spectrum Learning |
+| `RecceDetector` | RECCE — Reconstruction-classification detector |
+| `CapsuleNet` | Capsule Network for deepfakes |
+| *DeepfakeBench models* | All models from [DeepfakeBench](https://github.com/scu-zjz/DeepfakeBench) are auto-wrapped (requires `pip install -e .` of the forked repo) |
+
+</details>
+
+<details>
+<summary><b>Backbone / Generic Models</b> (11 backbones)</summary>
+
+| Name | Description |
+|------|-------------|
+| `Resnet50` | ResNet-50 |
+| `Resnet101` | ResNet-101 |
+| `ConvNextSmall` | ConvNeXT Small |
+| `ConvNextBase` | ConvNeXT Base |
+| `Xception` | Xception |
+| `EfficientNet` | EfficientNet |
+| `DenseNet` | DenseNet |
+| `MobileNet` | MobileNet |
+| `ViT` | Vision Transformer |
+| `UNet` | UNet (segmentation) |
+| `SwinTransformer` | Swin Transformer |
+| `SegFormer` | SegFormer (segmentation) |
+
+Common `init_config` for backbones:
+```yaml
+init_config:
+  pretrained: true
+  num_classes: 1
+  image_size: 256       # For models that need it
+  output_type: "label"  # "label" or "mask"
+```
+
+</details>
+
+<details>
+<summary><b>Wrapper Models</b></summary>
+
+| Name | Description |
+|------|-------------|
+| `Mask2LabelWrapper` | Wraps a mask-prediction model to produce image-level labels |
+
+```yaml
+model:
+  name: Mask2LabelWrapper
+  init_config:
+    name: MVSSNet          # The underlying mask model
+    init_config:           # Optional: params for the underlying model
+      edge_lambda: 20
+```
+
+</details>
+
+---
+
+### Dataset Configuration
+
+#### Training Dataset (`train_dataset`)
+
+Can be a **single dataset** or a **list** (automatically concatenated).
+
+```yaml
+# Single dataset
+train_dataset:
+  name: <DATASET_NAME>
+  dataset_name: <friendly_name>   # Used in logs
+  init_config:
+    <dataset-specific params>
+
+# Multiple datasets (concatenated)
+train_dataset:
+  - name: DocDataset
+    dataset_name: DocTamper_train
+    init_config: { path: /data/doctamper, get_dct_qtb: true }
+  - name: DocDataset
+    dataset_name: DocTamper_scd_train
+    init_config: { path: /data/scd, get_dct_qtb: true }
+```
+
+#### Test Dataset (`test_dataset`)
+
+Always a **list**. Each entry can optionally override the global `evaluator`.
+
+```yaml
+test_dataset:
+  - name: AIGCLabelDataset
+    dataset_name: DiffusionForensics_val
+    init_config:
+      image_size: 224
+      path: /data/val.json
+  - name: AIGCLabelDataset
+    dataset_name: ProGAN_val
+    evaluator:                     # Per-dataset evaluator override
+      - name: ImageAP
+        init_config: { threshold: 0.5 }
+    init_config:
+      image_size: 224
+      path: /data/progan_val.json
+```
+
+#### Run Dataset (`run_dataset`) — Inference mode only
+
+```yaml
+run_dataset:
+  - name: DocDataset
+    dataset_name: test_images
+    output_dir: results_subdir      # Subdirectory under output_base_dir
+    threshold: 0.5                  # Per-dataset threshold override
+    init_config:
+      path: /data/test_images
+```
+
+#### Available Datasets
+
+<details>
+<summary><b>All registered datasets</b></summary>
+
+| Name | Task | Key init_config |
+|------|------|-----------------|
+| `AIGCLabelDataset` | AIGC | `path` (JSON), `image_size` |
+| `AIGCCrossDataset` | AIGC | `path` (single or list of JSON paths), `image_size` |
+| `DireDataset` | AIGC | `path`, `image_size` |
+| `DocDataset` | Document | `path`, `get_dct_qtb` (bool), `dct_path`, `train` (bool), `suffix_img` (list) |
+| `DocumentCrossDataset` | Document | `path` (list), `image_size`, `config_file`, `split_mode` |
+| `DeepfakeCrossDataset` | Deepfake | `path`, `image_size`, `config_file`, `split_mode` (`train`/`val`/`test`) |
+| `ManiDataset` | IMDL | `path`, `image_size` |
+| `JsonDataset` | IMDL | `path` (JSON), `image_size`, `is_resizing`, `is_padding` |
+| `BalancedDataset` | IMDL | `path`, `image_size` |
+| `IMDLCrossDataset` | IMDL | `path`, `image_size` |
+
+**Wrapper Datasets:**
+
+| Name | Description | Key init_config |
+|------|-------------|-----------------|
+| `SlidingWindowWrapper` | Splits large images into overlapping patches | `patch_width`, `patch_height`, `overlapping` (0-1), `merge_mode`, `dataset` (nested) |
+| `CrossDataset` | Combines multiple datasets with per-dataset sample limits | `dataset_config` (list with `name`, `pic_nums`, `init_config`) |
+
+</details>
+
+<details>
+<summary><b>SlidingWindowWrapper example</b></summary>
+
+```yaml
+train_dataset:
+  name: SlidingWindowWrapper
+  dataset_name: doc_sliding
+  init_config:
+    patch_width: 512
+    patch_height: 512
+    overlapping: 0.5
+    merge_mode: gaussian    # gaussian | mean | max | min | overwrite
+    dataset:
+      name: DocDataset
+      init_config:
+        path: /data/doc
+        get_dct_qtb: true
+```
+
+</details>
+
+<details>
+<summary><b>CrossDataset example (multi-domain training)</b></summary>
+
+```yaml
+train_dataset:
+  name: CrossDataset
+  dataset_name: multi_domain
+  init_config:
+    dataset_config:
+      - name: IMDLCrossDataset
+        pic_nums: 12641
+        init_config:
+          image_size: 256
+          path: /data/imdl
+      - name: AIGCCrossDataset
+        pic_nums: 12641
+        init_config:
+          image_size: 256
+          path: /data/aigc
+```
+
+</details>
+
+---
+
+### Transform Configuration
+
+```yaml
+transform:
+  name: <TRANSFORM_NAME>
+  init_config:
+    <transform-specific params>
+```
+
+| Name | Task | Key init_config |
+|------|------|-----------------|
+| `AIGCTransform` | AIGC | `norm_type` (`image_net`) |
+| `DocTransform` | Document | `norm_type` (`image_net`), `compression_type` (`cv` / `pillow`), `luminance_path`, `chrominance_path` |
+| `IMDLTransform` | IMDL | (task-specific) |
+
+> All transforms use [Albumentations](https://albumentations.ai/) under the hood and return separate train/test/post-process pipelines.
+
+---
+
+### Evaluator Configuration
+
+Evaluators compute metrics during training and testing. Defined globally or per test dataset.
+
+```yaml
+evaluator:
+  - name: <EVALUATOR_NAME>
+    init_config:
+      threshold: 0.5
+```
+
+#### Available Evaluators
+
+**Image-Level (classification):**
+
+| Name | Metric |
+|------|--------|
+| `ImageF1` | F1 score |
+| `ImageAUC` | Area Under ROC Curve |
+| `ImageAP` | Average Precision |
+| `ImageMCC` | Matthews Correlation Coefficient |
+| `ImageTPR` | True Positive Rate (Recall) |
+| `ImageTNR` | True Negative Rate (Specificity) |
+| `ImageAccuracy` | Classification Accuracy |
+
+**Pixel-Level (localization):**
+
+| Name | Metric |
+|------|--------|
+| `PixelF1` | Pixel-wise F1 score |
+| `PixelIOU` | Intersection over Union |
+| `PixelMCC` | Pixel-level Matthews Correlation Coefficient |
+
+> All evaluators are **GPU-accelerated** and accept a `threshold` parameter (default `0.5`). Additional pixel-level evaluators are available via the IMDLBenCo integration.
+
+---
+
+### Complete YAML Examples
+
+<details>
+<summary><b>Training — AIGC label prediction</b></summary>
+
+```yaml
+gpus: "0,1"
+flag: train
+log_dir: "./log/aigc_resnet_train"
+
+if_predict_label: true
+if_predict_mask: false
+
+model:
+  name: Resnet50
+  init_config:
+    pretrained: true
+    num_classes: 1
+
+train_dataset:
+  name: AIGCLabelDataset
+  dataset_name: DiffusionForensics_train
+  init_config:
+    image_size: 224
+    path: /data/AIGC/DiffusionForensics/train.json
+
+test_dataset:
+  - name: AIGCLabelDataset
+    dataset_name: DiffusionForensics_val
+    init_config:
+      image_size: 224
+      path: /data/AIGC/DiffusionForensics/val.json
+
+transform:
+  name: AIGCTransform
+
+evaluator:
+  - name: ImageF1
+    init_config:
+      threshold: 0.5
+
+batch_size: 768
+test_batch_size: 128
+epochs: 20
+accum_iter: 1
+record_epoch: 0
+
+no_model_eval: false
+test_period: 1
+log_per_epoch_count: 20
+
+find_unused_parameters: false
+use_amp: true
+
+weight_decay: 0.05
+lr: 1e-4
+blr: 0.001
+min_lr: 1e-5
+warmup_epochs: 1
+
+device: "cuda"
+seed: 42
+resume: ""
+start_epoch: 0
+num_workers: 8
+pin_mem: true
+world_size: 1
+local_rank: -1
+dist_on_itp: false
+dist_url: "env://"
+```
+
+</details>
+
+<details>
+<summary><b>Training — Document mask prediction</b></summary>
+
+```yaml
+gpus: "0,1,2,3"
+flag: train
+log_dir: "./log/doc_ffdn_train"
+
+if_predict_label: false
+if_predict_mask: true
+
+model:
+  name: FFDN
+  init_config:
+    weight_path: /weights/convnext_small.pth
+
+train_dataset:
+  name: DocDataset
+  dataset_name: DocTamperData_train
+  init_config:
+    path: /data/DocTamper/train
+    get_dct_qtb: true
+
+test_dataset:
+  - name: DocDataset
+    dataset_name: DocTamperData_test
+    init_config:
+      path: /data/DocTamper/test
+      get_dct_qtb: true
+
+transform:
+  name: DocTransform
+  init_config:
+    norm_type: image_net
+
+evaluator:
+  - name: PixelIOU
+    init_config:
+      threshold: 0.5
+  - name: PixelF1
+    init_config:
+      threshold: 0.5
+
+batch_size: 16
+test_batch_size: 8
+epochs: 100
+accum_iter: 1
+record_epoch: 0
+
+no_model_eval: false
+test_period: 1
+log_per_epoch_count: 20
+
+find_unused_parameters: true
+use_amp: true
+
+weight_decay: 0.05
+lr: 1e-4
+min_lr: 1e-5
+warmup_epochs: 1
+
+device: "cuda"
+seed: 42
+resume: ""
+start_epoch: 0
+num_workers: 8
+pin_mem: true
+dist_on_itp: false
+dist_url: "env://"
+```
+
+</details>
+
+<details>
+<summary><b>Training — Mask2Label wrapper (use a mask model for classification)</b></summary>
+
+```yaml
+gpus: "0,1,2,3"
+flag: train
+log_dir: "./log/mask2label_mvssnet"
+
+if_predict_label: true
+if_predict_mask: false
+
+model:
+  name: Mask2LabelWrapper
+  init_config:
+    name: MVSSNet
+
+train_dataset:
+  name: AIGCLabelDataset
+  dataset_name: DiffusionForensics_train
+  init_config:
+    image_size: 224
+    path: /data/train.json
+
+test_dataset:
+  - name: AIGCLabelDataset
+    dataset_name: DiffusionForensics_val
+    init_config:
+      image_size: 224
+      path: /data/val.json
+
+transform:
+  name: AIGCTransform
+  init_config:
+    norm_type: image_net
+
+evaluator:
+  - name: ImageF1
+    init_config:
+      threshold: 0.5
+
+batch_size: 128
+test_batch_size: 32
+epochs: 20
+lr: 1e-4
+weight_decay: 0.05
+warmup_epochs: 1
+use_amp: true
+device: "cuda"
+seed: 42
+num_workers: 8
+pin_mem: true
+dist_url: "env://"
+```
+
+</details>
+
+<details>
+<summary><b>Inference — Run mode with SlidingWindowWrapper</b></summary>
+
+```yaml
+gpus: "0"
+flag: run
+log_dir: "./log/run_inference"
+
+if_predict_label: false
+if_predict_mask: true
+
+output_base_dir: ./run_output
+checkpoint_path: /weights/checkpoint-best.pth
+
+model:
+  name: FFDN
+  init_config:
+    weight_path: /weights/convnext_small.pth
+
+run_dataset:
+  - name: SlidingWindowWrapper
+    dataset_name: fcd
+    output_dir: fcd_output
+    init_config:
+      patch_width: 512
+      patch_height: 512
+      overlapping: 0.5
+      merge_mode: gaussian
+      dataset:
+        name: DocDataset
+        init_config:
+          path: /data/fcd
+          get_dct_qtb: true
+
+transform:
+  name: DocTransform
+  init_config:
+    norm_type: image_net
+
+test_batch_size: 8
+no_model_eval: false
+device: "cuda"
+num_workers: 8
+pin_mem: true
+dist_on_itp: false
+dist_url: "env://"
+```
+
+</details>
+
+<details>
+<summary><b>Testing — Evaluate a checkpoint on multiple datasets</b></summary>
+
+```yaml
+gpus: "0"
+flag: test
+log_dir: "./log/eval_convnext"
+
+if_predict_label: true
+if_predict_mask: false
+
+checkpoint_path: /weights/convnext_checkpoint.pth
+
+model:
+  name: ConvNextSmall
+  init_config:
+    image_size: 256
+
+test_dataset:
+  - name: AIGCLabelDataset
+    dataset_name: DiffusionForensics_test
+    init_config:
+      image_size: 256
+      path: /data/aigc_test.json
+  - name: AIGCLabelDataset
+    dataset_name: ProGAN_test
+    evaluator:
+      - name: ImageAP
+        init_config:
+          threshold: 0.5
+    init_config:
+      image_size: 256
+      path: /data/progan_test.json
+
+transform:
+  name: AIGCTransform
+
+evaluator:
+  - name: ImageF1
+    init_config:
+      threshold: 0.5
+  - name: ImageAUC
+    init_config:
+      threshold: 0.5
+
+test_batch_size: 64
+no_model_eval: false
+device: "cuda"
+num_workers: 8
+pin_mem: true
+dist_url: "env://"
+```
+
+</details>
+
+---
+
+### Running Experiments
+
+There are **4 ways** to launch training, testing, or inference in ForensicHub. Each method uses the YAML config differently, especially regarding distributed training parameters.
+
+---
+
+#### Method 1: `forhub` CLI (Recommended)
+
+The simplest way. The CLI reads the YAML, extracts `gpus` and `flag`, then internally launches `torchrun` with the correct parameters.
+
+```bash
+forhub train /path/to/config.yaml
+forhub test /path/to/config.yaml
+forhub run /path/to/config.yaml
+```
+
+**What happens under the hood:**
+1. The CLI reads `gpus` from the YAML (e.g. `"0,1,2,3"`) and counts how many GPUs
+2. Sets `CUDA_VISIBLE_DEVICES` to the GPU IDs
+3. Finds a free port automatically (avoids conflicts between multiple runs)
+4. Launches `torchrun --standalone --nnodes=1 --nproc_per_node=<gpu_count> --master_port=<free_port>`
+5. Stdout goes to `<log_dir>/logs.log`, stderr to `<log_dir>/error.log`
+6. If `log_dir` already exists, a suffix `_1`, `_2`, etc. is automatically appended
+
+**YAML parameters used by forhub CLI:**
+
+| Parameter | Used by CLI | Notes |
+|-----------|:-----------:|-------|
+| `gpus` | Yes | Parsed to set `CUDA_VISIBLE_DEVICES` and compute `nproc_per_node` |
+| `flag` | Yes | Determines which script to run (`train.py`, `test.py`, or `run.py`) |
+| `log_dir` | Yes | Creates the directory, redirects logs there |
+| `world_size` | **Ignored** | Auto-set by `torchrun` via `WORLD_SIZE` env var |
+| `local_rank` | **Ignored** | Auto-set by `torchrun` via `LOCAL_RANK` env var |
+| `dist_url` | **Ignored** | `torchrun --standalone` handles process group init |
+| `dist_on_itp` | **Ignored** | Only for ITP clusters |
+
+> The `flag` field in the YAML is **ignored** by `forhub` CLI — the mode is determined by the subcommand (`forhub train`, `forhub test`, `forhub run`). However, `run.sh` uses `flag` to pick the right script.
+
+---
+
+#### Method 2: `run.sh` Shell Script
+
+The script at `ForensicHub/statics/run.sh` reads the YAML to extract `gpus`, `log_dir`, and `flag`, then launches `torchrun`.
+
+```bash
+# Set the YAML path and run
+yaml_config="/path/to/config.yaml" bash ForensicHub/statics/run.sh
+```
+
+**What happens:**
+1. Reads `gpus`, `log_dir`, and `flag` from the YAML using Python
+2. Counts GPUs from the `gpus` string (e.g. `"4,5"` → 2 GPUs)
+3. Sets `CUDA_VISIBLE_DEVICES` and `PYTHONPATH`
+4. Uses `flag` to choose the script: `train.py`, `test.py`, or `run.py`
+5. Launches `torchrun --standalone --nnodes=1 --nproc_per_node=<gpu_count>`
+6. Redirects stdout/stderr to `<log_dir>/logs.log` and `<log_dir>/error.log`
+
+**YAML parameters used by run.sh:**
+
+| Parameter | Used by run.sh | Notes |
+|-----------|:--------------:|-------|
+| `gpus` | Yes | Sets `CUDA_VISIBLE_DEVICES` + computes `nproc_per_node` |
+| `flag` | Yes | Selects which script to launch (`train`/`test`/`run`) |
+| `log_dir` | Yes | Creates directory, redirects logs |
+| `world_size` | **Ignored** | Auto-set by `torchrun` |
+| `local_rank` | **Ignored** | Auto-set by `torchrun` |
+| `dist_url` | **Ignored** | Handled by `torchrun --standalone` |
+
+**Batch mode** — Run multiple experiments sequentially:
+
+```bash
+# Edit batch_run.sh to list your YAML files
+bash ForensicHub/statics/batch_run.sh
+```
+
+`batch_run.sh` iterates over a list of YAML paths and calls `run.sh` for each one. If one fails, it continues to the next.
+
+**Background mode** — Run in the background with `nohup`:
+
+```bash
+nohup ./run.sh > run.log 2>&1 &
+```
+
+---
+
+#### Method 3: Direct `torchrun` (Advanced)
+
+Launch `torchrun` yourself for full control over distributed parameters. This is useful for multi-node training or custom setups.
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun \
+    --standalone \
+    --nnodes=1 \
+    --nproc_per_node=4 \
+    ForensicHub/training_scripts/train.py \
+    --config /path/to/config.yaml
+```
+
+**What torchrun auto-sets (overrides YAML):**
+
+When you use `torchrun`, it sets environment variables that **override** the corresponding YAML values:
+
+| Env Variable (set by torchrun) | Overrides YAML param | Description |
+|-------------------------------|---------------------|-------------|
+| `RANK` | — | Global rank of the process |
+| `WORLD_SIZE` | `world_size` | Total number of processes |
+| `LOCAL_RANK` | `local_rank` | Local GPU index for this process |
+| `MASTER_ADDR` | `dist_url` (partially) | Address of the master node |
+| `MASTER_PORT` | `dist_url` (partially) | Port for communication |
+
+**YAML parameters behavior with torchrun:**
+
+| Parameter | Behavior | Notes |
+|-----------|----------|-------|
+| `gpus` | **Not used** | You set `CUDA_VISIBLE_DEVICES` yourself |
+| `flag` | **Not used** | You choose the script directly (`train.py`/`test.py`/`run.py`) |
+| `world_size` | **Overridden** | Set by `torchrun` via `WORLD_SIZE` env var |
+| `local_rank` | **Overridden** | Set by `torchrun` via `LOCAL_RANK` env var |
+| `dist_url` | **Overridden** | `torchrun --standalone` sets `MASTER_ADDR`/`MASTER_PORT` |
+| `dist_on_itp` | Must be `false` | Only set to `true` on ITP clusters |
+| All other params | **Used normally** | `batch_size`, `lr`, `epochs`, model, dataset, etc. |
+
+> **Key difference**: With `torchrun`, the YAML parameters `gpus`, `flag`, `world_size`, `local_rank`, and `dist_url` are **not used** — they are either unnecessary or overridden by environment variables. The YAML only provides model/dataset/training hyperparameters.
+
+**Multi-node example:**
+
+```bash
+# On node 0 (master)
+torchrun --nproc_per_node=4 --nnodes=2 --node_rank=0 \
+    --master_addr=192.168.1.1 --master_port=29500 \
+    ForensicHub/training_scripts/train.py --config config.yaml
+
+# On node 1
+torchrun --nproc_per_node=4 --nnodes=2 --node_rank=1 \
+    --master_addr=192.168.1.1 --master_port=29500 \
+    ForensicHub/training_scripts/train.py --config config.yaml
+```
+
+**SLURM cluster:**
+
+The code also detects `SLURM_PROCID` environment variable automatically. On SLURM, you can launch without `torchrun`:
+
+```bash
+srun python ForensicHub/training_scripts/train.py --config config.yaml
+```
+
+---
+
+#### Method 4: Single Image Inference (No YAML)
+
+For quick inference on a single image **without any YAML file**, use `inference.py` directly. Everything is configured in Python code:
+
+```python
+# ForensicHub/training_scripts/inference.py
+import torch
+from PIL import Image
+from torchvision import transforms
+from ForensicHub.registry import MODELS, build_from_registry
+
+# 1. Define model config (replaces YAML model section)
+model_args = {
+    "name": "ConvNextSmall",
+    "init_config": {
+        "image_size": 256
+    },
+    "init_path": "/path/to/checkpoint.pth"
+}
+
+# 2. Build and load model
+model = build_from_registry(MODELS, model_args)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+
+checkpoint = torch.load(model_args['init_path'], map_location=device)
+model.load_state_dict(checkpoint["model"] if "model" in checkpoint else checkpoint)
+model.eval()
+
+# 3. Load and preprocess image (replaces YAML transform section)
+transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+image = transform(Image.open("image.png").convert("RGB")).unsqueeze(0).to(device)
+
+# 4. Run inference (no dataset, no evaluator)
+input_dict = {
+    "image": image,
+    "label": torch.ones(1).to(device),           # pseudo input
+    "mask": torch.ones(1, 1, 256, 256).to(device) # pseudo input
+}
+output = model(**input_dict)
+print(f"Predicted label: {output['pred_label'].item()}")
+```
+
+**No YAML parameters are used.** Everything is hardcoded in Python: model name, checkpoint path, image path, transforms.
+
+| What | Source |
+|------|--------|
+| Model | Python dict (`model_args`) |
+| Checkpoint | `torch.load()` directly |
+| Transform | `torchvision.transforms` (manual) |
+| Dataset | None — single image loaded manually |
+| Evaluator | None — raw output printed |
+| Distributed | None — single GPU only |
+
+---
+
+#### Summary: What's Used in Each Method
+
+| YAML Parameter | `forhub` CLI | `run.sh` | `torchrun` direct | `inference.py` |
+|----------------|:------------:|:--------:|:-----------------:|:--------------:|
+| `gpus` | Read | Read | **Not used** | N/A |
+| `flag` | **Ignored** (subcommand) | Read | **Not used** | N/A |
+| `log_dir` | Read | Read | Read | N/A |
+| `world_size` | **Overridden** | **Overridden** | **Overridden** | N/A |
+| `local_rank` | **Overridden** | **Overridden** | **Overridden** | N/A |
+| `dist_url` | **Overridden** | **Overridden** | **Overridden** | N/A |
+| `dist_on_itp` | **Ignored** | **Ignored** | Read (if ITP) | N/A |
+| `model` | Read | Read | Read | Python dict |
+| `train_dataset` | Read | Read | Read | N/A |
+| `test_dataset` | Read | Read | Read | N/A |
+| `transform` | Read | Read | Read | Manual code |
+| `evaluator` | Read | Read | Read | N/A |
+| `batch_size`, `lr`, ... | Read | Read | Read | N/A |
+| `checkpoint_path` | Read (test/run) | Read (test/run) | Read (test/run) | Manual `torch.load` |
+
+> **Graceful stop**: During training, create a `STOP` file in `log_dir` to stop after the current epoch:
+> ```bash
+> touch ./log/my_experiment/STOP
+> ```
+> The model is saved and the STOP file is removed automatically.
+
+---
+
 ## 🎯Quick Start
 
 ---
@@ -181,9 +1121,9 @@ ForensicHub supports lightweight configuration via YAML files. In this example, 
 additional code is required.
 Here is a sample training YAML `/statics/aigc/resnet_train.yaml`. The four components-**Model, Dataset, Transform,
 Evaluator**-are all initiated
-via `init_config`：
+via `init_config`:
 
-```shell
+```yaml
 # DDP
 gpus: "4,5"
 flag: train
@@ -198,7 +1138,6 @@ if_predict_mask: false
 # Model
 model:
   name: Resnet50
-  # Model specific setting
   init_config:
     pretrained: true
     num_classes: 1
@@ -209,14 +1148,15 @@ train_dataset:
   dataset_name: DiffusionForensics_train
   init_config:
     image_size: 224
-    path: /mnt/data1/public_datasets/AIGC/DiffusionForensics/images/train.json
-#  Test dataset (one or many)
+    path: /data/AIGC/DiffusionForensics/train.json
+
+# Test dataset (one or many)
 test_dataset:
   - name: AIGCLabelDataset
     dataset_name: DiffusionForensics_val
     init_config:
       image_size: 224
-      path: /mnt/data1/public_datasets/AIGC/DiffusionForensics/images/val.json
+      path: /data/AIGC/DiffusionForensics/val.json
 
 # Transform
 transform:
@@ -228,40 +1168,32 @@ evaluator:
     init_config:
       threshold: 0.5
 
-# Training related
+# Training hyperparameters
 batch_size: 768
 test_batch_size: 128
 epochs: 20
 accum_iter: 1
-record_epoch: 0  # Save the best only after record epoch.
+record_epoch: 0
 
-# Test related
 no_model_eval: false
 test_period: 1
-
-# Logging & TensorBoard
 log_per_epoch_count: 20
 
-# DDP & AMP settings
 find_unused_parameters: false
 use_amp: true
 
-# Optimizer parameters
 weight_decay: 0.05
 lr: 1e-4
 blr: 0.001
 min_lr: 1e-5
 warmup_epochs: 1
 
-# Device and training control
 device: "cuda"
 seed: 42
 resume: ""
 start_epoch: 0
 num_workers: 8
 pin_mem: true
-
-# Distributed training parameters
 world_size: 1
 local_rank: -1
 dist_on_itp: false
@@ -271,8 +1203,6 @@ dist_url: "env://"
 After creating the YAML file, you can launch training using `statics/run.sh` after updating file paths. You can also
 use `statics/batch_run.sh` for batch experiments, which internally invokes multiple `run.sh` scripts. Testing works
 similarly and only requires configuring the same four components.
-
-
 
 </details>
 
