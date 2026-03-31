@@ -57,14 +57,14 @@ transform:
   init_config:
     norm_type: image_net
 
-# Evaluators (optional) - compute aggregate metrics and filter results.
-# The evaluator's threshold is used to separate results into
-# above_score/ and below_score/ folders with per-image score details.
+# Evaluators (optional) - compute per-image metrics and filter results.
+# The 1st evaluator's score_threshold splits into above_score/ and below_score/.
 # evaluator:
-#   - name: ImageAP
 #   - name: ImageMCC
+#     score_threshold: 0.5
 #     init_config:
 #       threshold: 0.5
+#   - name: ImageAP
 
 # Inference settings
 batch_size: 32

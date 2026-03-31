@@ -3,7 +3,6 @@ import json
 import time
 import datetime
 import argparse
-import shutil
 import numpy as np
 import torch
 from pathlib import Path
@@ -59,60 +58,72 @@ def apply_threshold(pred, threshold):
     return pred
 
 
-def compute_per_image_score(pred, label, mask, evaluator, ev_threshold):
-    """Compute a per-image score using the evaluator's metric type.
+def compute_per_image_metric(pred_mask, gt_mask, pred_label, evaluator):
+    """Compute a per-image metric score using the evaluator's type.
 
     For image-level evaluators (ImageAP, ImageMCC, ImageTPR, ImageTNR):
-        The score is the pred_label value itself (confidence).
+        The score is the pred_label confidence value.
 
     For pixel-level evaluators (PixelF1, PixelIOU):
-        Computes the metric on this single image's pred_mask vs ground truth mask.
+        Computes the metric on this single image's pred_mask vs gt_mask.
+        Uses the evaluator's own threshold to binarize the prediction.
 
-    Returns (score, metric_name).
+    Returns the score as a float.
     """
     ev_name = evaluator.name.lower()
 
-    # Image-level: the score is simply the prediction confidence
+    # Image-level: score = model confidence
     if 'image' in ev_name or 'ap' in ev_name:
-        if pred is not None:
-            return float(pred), evaluator.name
-        return float(label) if label is not None else 0.0, evaluator.name
+        if pred_label is not None:
+            return float(pred_label)
+        # Fallback to mask mean if no pred_label
+        if pred_mask is not None:
+            return float(np.mean(pred_mask))
+        return 0.0
 
-    # Pixel-level metrics: compute per-image
-    if mask is None:
-        return 0.0, evaluator.name
+    # Pixel-level: compute F1 or IoU per-image
+    if pred_mask is None or gt_mask is None:
+        return float('nan')
 
-    # Binarize prediction with evaluator threshold
-    pred_bin = (mask >= ev_threshold).astype(np.float32) if isinstance(mask, np.ndarray) else (mask >= ev_threshold).float()
-    gt = label  # For pixel-level, label is the ground truth mask
+    ev_pixel_threshold = getattr(evaluator, 'threshold', 0.5)
 
-    if isinstance(pred_bin, np.ndarray):
-        pred_flat = pred_bin.flatten()
-        gt_flat = gt.flatten().astype(np.float32) if isinstance(gt, np.ndarray) else gt.cpu().numpy().flatten().astype(np.float32)
+    # Binarize prediction
+    if isinstance(pred_mask, np.ndarray):
+        pred_flat = (pred_mask.flatten() >= ev_pixel_threshold).astype(np.float32)
     else:
-        pred_flat = pred_bin.flatten().cpu().numpy()
-        gt_flat = gt.flatten().cpu().numpy().astype(np.float32)
+        pred_flat = (pred_mask.flatten().cpu().numpy() >= ev_pixel_threshold).astype(np.float32)
 
     # Binarize ground truth
-    gt_flat = (gt_flat > 0.5).astype(np.float32)
+    if isinstance(gt_mask, np.ndarray):
+        gt_flat = (gt_mask.flatten() > 0.5).astype(np.float32)
+    else:
+        gt_flat = (gt_mask.flatten().cpu().numpy() > 0.5).astype(np.float32)
 
     tp = np.sum(pred_flat * gt_flat)
     fp = np.sum(pred_flat * (1 - gt_flat))
     fn = np.sum((1 - pred_flat) * gt_flat)
 
     if 'iou' in ev_name:
-        score = tp / (tp + fp + fn + 1e-9)
-    elif 'f1' in ev_name:
-        precision = tp / (tp + fp + 1e-9)
-        recall = tp / (tp + fn + 1e-9)
-        score = 2 * precision * recall / (precision + recall + 1e-9)
+        return float(tp / (tp + fp + fn + 1e-9))
     else:
-        # Fallback: use F1
+        # F1 (default for pixel-level)
         precision = tp / (tp + fp + 1e-9)
         recall = tp / (tp + fn + 1e-9)
-        score = 2 * precision * recall / (precision + recall + 1e-9)
+        return float(2 * precision * recall / (precision + recall + 1e-9))
 
-    return float(score), evaluator.name
+
+def _score_str(score):
+    if np.isnan(score) or np.isinf(score):
+        return str(score)
+    return f"{score:.6f}"
+
+
+def _classify(score, threshold):
+    if threshold is None:
+        return "N/A"
+    if np.isnan(score) or np.isinf(score):
+        return "nan"
+    return "above" if score >= threshold else "below"
 
 
 def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
@@ -181,25 +192,37 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
         post_function = None
     print(f"Post function: {post_function}")
 
-    # Init global (default) evaluators
+    # ---- Build evaluators ----
+    # Global evaluators + extract score_threshold from the first one that has it
     evaluator_list = []
+    global_score_threshold = None
     for eva_args in evaluator_args:
         evaluator_list.append(build_from_registry(EVALUATORS, eva_args))
+        if global_score_threshold is None and "score_threshold" in eva_args:
+            global_score_threshold = eva_args["score_threshold"]
     if evaluator_list:
-        print(f"Global evaluators: {evaluator_list}")
+        print(f"Global evaluators: {[e.name for e in evaluator_list]}")
+        if global_score_threshold is not None:
+            print(f"Global score_threshold (from 1st evaluator): {global_score_threshold}")
 
-    # Init per-dataset evaluators (if specified in YAML, else fallback to global)
+    # Per-dataset evaluators
     per_dataset_evaluators = {}
+    per_dataset_score_threshold = {}
     for ds_args_item in run_dataset_args:
         ds_name = ds_args_item["dataset_name"]
         if "evaluator" in ds_args_item:
-            ds_evaluators = []
+            ds_evals = []
+            ds_st = None
             for eva_args_item in ds_args_item["evaluator"]:
-                ds_evaluators.append(build_from_registry(EVALUATORS, eva_args_item))
-            per_dataset_evaluators[ds_name] = ds_evaluators
-            print(f"Evaluators for {ds_name}: {ds_evaluators}")
+                ds_evals.append(build_from_registry(EVALUATORS, eva_args_item))
+                if ds_st is None and "score_threshold" in eva_args_item:
+                    ds_st = eva_args_item["score_threshold"]
+            per_dataset_evaluators[ds_name] = ds_evals
+            per_dataset_score_threshold[ds_name] = ds_st
+            print(f"Evaluators for {ds_name}: {[e.name for e in ds_evals]}, score_threshold={ds_st}")
         else:
             per_dataset_evaluators[ds_name] = evaluator_list
+            per_dataset_score_threshold[ds_name] = global_score_threshold
 
     # Global settings
     output_base_dir = getattr(args, 'output_base_dir', './run_output')
@@ -223,22 +246,14 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
         # Per-dataset pixel threshold override
         ds_threshold = ds_args.get("threshold", threshold)
 
-        # Evaluators for this dataset
+        # Evaluators & score_threshold for this dataset
         ds_evaluator_list = per_dataset_evaluators.get(dataset_name, evaluator_list)
+        ds_score_threshold = per_dataset_score_threshold.get(dataset_name, global_score_threshold)
         for ev in ds_evaluator_list:
             ev.recovery()
 
-        # Get the score filtering threshold from the first evaluator that has one
-        ev_threshold = None
-        for ev in ds_evaluator_list:
-            if hasattr(ev, 'threshold'):
-                ev_threshold = ev.threshold
-                break
-
-        # Track per-image scores and names
-        all_names = []
-        all_scores = []
-        all_labels = []
+        # The first evaluator is used for per-image scoring
+        primary_evaluator = ds_evaluator_list[0] if ds_evaluator_list else None
 
         print(
             Fore.CYAN + f"\n{'='*60}\n"
@@ -246,7 +261,7 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
             f"  Output: {output_dir}\n"
             f"  Pixel threshold: {ds_threshold}\n"
             f"  Evaluators: {[e.name for e in ds_evaluator_list]}\n"
-            f"  Evaluator threshold (for filtering): {ev_threshold}\n"
+            f"  Score threshold (1st evaluator): {ds_score_threshold}\n"
             f"{'='*60}" + Style.RESET_ALL
         )
 
@@ -292,8 +307,137 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
         sw_all_metas = []
         sw_all_labels = {}  # original_name -> label
 
+        # Prepare output dirs
         os.makedirs(output_dir, exist_ok=True)
+        above_dir = os.path.join(output_dir, "above_score")
+        below_dir = os.path.join(output_dir, "below_score")
+        nan_dir = os.path.join(output_dir, "nan_score")
+        if ds_score_threshold is not None:
+            os.makedirs(above_dir, exist_ok=True)
+            os.makedirs(below_dir, exist_ok=True)
 
+        # Open score CSV for streaming writes
+        score_csv_path = os.path.join(output_dir, "score_details.csv")
+        score_csv_f = open(score_csv_path, 'w')
+        # We'll write the header after we know if labels exist; track state
+        csv_header_written = False
+        count_above = 0
+        count_below = 0
+        count_nan = 0
+
+        # Per-folder CSV file handles (opened lazily)
+        above_csv_f = None
+        below_csv_f = None
+        nan_csv_f = None
+
+        def _write_score_row(f, name, score, label_val, has_labels, write_classification=True):
+            """Write a single row to a score CSV."""
+            s_str = _score_str(score)
+            if write_classification:
+                cls = _classify(score, ds_score_threshold)
+                if has_labels:
+                    gt = label_val if label_val is not None else ""
+                    f.write(f"{name},{s_str},{gt},{cls}\n")
+                else:
+                    f.write(f"{name},{s_str},{cls}\n")
+            else:
+                if has_labels:
+                    gt = label_val if label_val is not None else ""
+                    f.write(f"{name},{s_str},{gt}\n")
+                else:
+                    f.write(f"{name},{s_str}\n")
+            f.flush()
+
+        def _get_folder_csv(folder, has_labels):
+            """Open a predictions.csv in the given folder, write header."""
+            os.makedirs(folder, exist_ok=True)
+            f = open(os.path.join(folder, "predictions.csv"), 'w')
+            if has_labels:
+                f.write("name,score,ground_truth_label\n")
+            else:
+                f.write("name,score\n")
+            return f
+
+        def process_single_image(name, pred_mask_np, gt_mask, pred_label_val, label_val, has_labels):
+            """Process one image: compute evaluator scores, write to CSVs, save to correct folder.
+
+            pred_mask_np: numpy array or None (mask prediction)
+            gt_mask: tensor or None (ground truth mask)
+            pred_label_val: float or None (model's label confidence)
+            label_val: int or None (ground truth label)
+            """
+            nonlocal csv_header_written, count_above, count_below, count_nan
+            nonlocal above_csv_f, below_csv_f, nan_csv_f
+
+            # Compute per-image score for ALL evaluators (for the CSV detail)
+            scores_dict = {}
+            for ev in ds_evaluator_list:
+                s = compute_per_image_metric(pred_mask_np, gt_mask, pred_label_val, ev)
+                scores_dict[ev.name] = s
+
+            # The primary evaluator's score determines the above/below split
+            if primary_evaluator is not None:
+                primary_score = scores_dict[primary_evaluator.name]
+            elif pred_label_val is not None:
+                primary_score = pred_label_val
+            else:
+                primary_score = float(np.mean(pred_mask_np)) if pred_mask_np is not None else 0.0
+
+            # Write CSV header on first row
+            if not csv_header_written:
+                ev_cols = ",".join(ev.name for ev in ds_evaluator_list) if ds_evaluator_list else ""
+                if has_labels:
+                    header = f"name,score,ground_truth_label,classification"
+                else:
+                    header = f"name,score,classification"
+                if ev_cols:
+                    header += f",{ev_cols}"
+                score_csv_f.write(header + "\n")
+                csv_header_written = True
+
+            # Build row
+            s_str = _score_str(primary_score)
+            cls = _classify(primary_score, ds_score_threshold)
+            if has_labels:
+                gt = label_val if label_val is not None else ""
+                row = f"{name},{s_str},{gt},{cls}"
+            else:
+                row = f"{name},{s_str},{cls}"
+            # Append per-evaluator scores
+            for ev in ds_evaluator_list:
+                row += f",{_score_str(scores_dict[ev.name])}"
+            score_csv_f.write(row + "\n")
+            score_csv_f.flush()
+
+            # Save mask image to filtered folder (streaming)
+            if ds_score_threshold is not None:
+                is_nan = np.isnan(primary_score) or np.isinf(primary_score)
+                if is_nan:
+                    target_dir = nan_dir
+                    count_nan += 1
+                    if nan_csv_f is None:
+                        nan_csv_f = _get_folder_csv(nan_dir, has_labels)
+                    _write_score_row(nan_csv_f, name, primary_score, label_val, has_labels, write_classification=False)
+                elif primary_score >= ds_score_threshold:
+                    target_dir = above_dir
+                    count_above += 1
+                    if above_csv_f is None:
+                        above_csv_f = _get_folder_csv(above_dir, has_labels)
+                    _write_score_row(above_csv_f, name, primary_score, label_val, has_labels, write_classification=False)
+                else:
+                    target_dir = below_dir
+                    count_below += 1
+                    if below_csv_f is None:
+                        below_csv_f = _get_folder_csv(below_dir, has_labels)
+                    _write_score_row(below_csv_f, name, primary_score, label_val, has_labels, write_classification=False)
+
+                # Save mask prediction image directly to filtered folder
+                if pred_mask_np is not None:
+                    clean_name = os.path.splitext(os.path.basename(str(name)))[0]
+                    save_path = os.path.join(target_dir, f"{clean_name}.png")
+                    save_prediction_image(pred_mask_np, save_path)
+
+        # ========== Inference loop ==========
         with torch.no_grad():
             for batch_idx, data_dict in enumerate(tqdm(
                 dataloader, desc=f"  Inference {dataset_name}",
@@ -308,19 +452,21 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                 output_dict = model(**data_dict)
 
                 # Extract predictions
+                preds = None
+                pred_labels = None
                 if predict_mask and 'pred_mask' in output_dict:
                     preds = output_dict['pred_mask']
-                    # Sigmoid if not already in [0, 1]
                     if preds.min() < 0 or preds.max() > 1:
                         preds = torch.sigmoid(preds)
                     preds = preds.cpu().numpy()
-                elif predict_label and 'pred_label' in output_dict:
+                if predict_label and 'pred_label' in output_dict:
                     pred_labels = output_dict['pred_label']
                     if pred_labels.min() < 0 or pred_labels.max() > 1:
                         pred_labels = torch.sigmoid(pred_labels)
                     pred_labels = pred_labels.cpu().numpy()
-                else:
-                    # Fallback: try any prediction key
+
+                if preds is None and pred_labels is None:
+                    # Fallback
                     for k in ('pred_mask', 'pred_label', 'pred'):
                         if k in output_dict:
                             preds = output_dict[k]
@@ -331,42 +477,25 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                         print(f"  Warning: No prediction found in output keys: {list(output_dict.keys())}")
                         continue
 
-                names = data_dict.get('name', [f"img_{batch_idx}_{i}" for i in range(len(preds) if 'preds' in dir() else len(pred_labels))])
+                n_samples = len(preds) if preds is not None else len(pred_labels)
+                names = data_dict.get('name', [f"img_{batch_idx}_{i}" for i in range(n_samples)])
                 labels = data_dict.get('label', None)
+                gt_masks = data_dict.get('mask', None)
+                has_labels = labels is not None
 
-                # Handle label-only prediction (no spatial output to save as image)
-                if predict_label and not predict_mask and 'pred_mask' not in output_dict:
-                    # Feed evaluators
-                    pred_labels_tensor = torch.as_tensor(pred_labels).to(device) if not isinstance(pred_labels, torch.Tensor) else pred_labels.to(device)
-                    if labels is not None:
-                        labels_tensor = labels.to(device) if isinstance(labels, torch.Tensor) else torch.as_tensor(labels).to(device)
-                        for ev in ds_evaluator_list:
-                            ev.batch_update(pred_labels_tensor, labels_tensor)
+                # Feed evaluators with batch data (for aggregate metrics)
+                if pred_labels is not None and labels is not None:
+                    pl_tensor = torch.as_tensor(pred_labels).to(device)
+                    lbl_tensor = labels.to(device) if isinstance(labels, torch.Tensor) else torch.as_tensor(labels).to(device)
+                    for ev in ds_evaluator_list:
+                        ev.batch_update(pl_tensor, lbl_tensor)
 
-                    for i, name in enumerate(names):
-                        pred_val = pred_labels[i] if isinstance(pred_labels, np.ndarray) else pred_labels
-                        if isinstance(pred_val, np.ndarray):
-                            pred_val = pred_val.item() if pred_val.size == 1 else pred_val.flatten()[0]
-                        elif isinstance(pred_val, torch.Tensor):
-                            pred_val = pred_val.item()
-
-                        label_val = None
-                        if labels is not None:
-                            label_val = labels[i].item() if isinstance(labels[i], torch.Tensor) else int(labels[i])
-
-                        all_names.append(str(name))
-                        all_scores.append(float(pred_val))
-                        all_labels.append(label_val)
-                    continue
-
-                # For mask predictions - handle sliding window or direct save
+                # Handle sliding window: accumulate for merge later
                 if is_sliding_window and 'sw_meta' in data_dict:
-                    # Accumulate for later merge
                     sw_metas = data_dict['sw_meta']
                     for i, name in enumerate(names):
                         sw_all_names.append(name)
                         sw_all_preds.append(preds[i])
-                        # Extract meta for this item
                         meta = {}
                         for k in sw_metas:
                             val = sw_metas[k]
@@ -377,126 +506,91 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                             else:
                                 meta[k] = val
                         sw_all_metas.append(meta)
-
-                        # Track labels per original image
                         if labels is not None:
                             orig_name = meta.get('original_name', name)
                             label_val = labels[i].item() if isinstance(labels[i], torch.Tensor) else int(labels[i])
-                            # Keep max label (if any patch is tampered, image is tampered)
                             if orig_name not in sw_all_labels:
                                 sw_all_labels[orig_name] = label_val
                             else:
                                 sw_all_labels[orig_name] = max(sw_all_labels[orig_name], label_val)
-                else:
-                    # Feed evaluators (use pred_label if available for image-level score)
-                    if 'pred_label' in output_dict and labels is not None:
-                        ev_preds = output_dict['pred_label']
-                        if ev_preds.min() < 0 or ev_preds.max() > 1:
-                            ev_preds = torch.sigmoid(ev_preds)
-                        labels_tensor = labels.to(device) if isinstance(labels, torch.Tensor) else torch.as_tensor(labels).to(device)
-                        for ev in ds_evaluator_list:
-                            ev.batch_update(ev_preds.to(device), labels_tensor)
+                    continue
 
-                    # Direct save (no sliding window)
-                    gt_masks = data_dict.get('mask', None)
-                    for i, name in enumerate(names):
-                        pred = preds[i]
+                # ---- Process each image immediately (streaming) ----
+                for i, name in enumerate(names):
+                    pred_mask_np = preds[i] if preds is not None else None
+                    gt_mask_i = gt_masks[i] if gt_masks is not None else None
 
-                        # Apply pixel threshold if specified
-                        if ds_threshold is not None:
-                            pred = apply_threshold(pred, ds_threshold)
+                    # Apply pixel threshold
+                    if pred_mask_np is not None and ds_threshold is not None:
+                        pred_mask_np = apply_threshold(pred_mask_np, ds_threshold)
 
-                        # Compute per-image score via evaluator
-                        if ds_evaluator_list and ev_threshold is not None:
-                            pred_label_val = None
-                            if 'pred_label' in output_dict:
-                                pl = output_dict['pred_label']
-                                if isinstance(pl, torch.Tensor):
-                                    pl = pl.detach().cpu().numpy()
-                                pred_label_val = float(pl[i].item() if pl[i].size == 1 else pl[i].flatten()[0])
+                    # Get pred_label for this image
+                    pred_label_val = None
+                    if pred_labels is not None:
+                        pl_i = pred_labels[i]
+                        pred_label_val = float(pl_i.item() if hasattr(pl_i, 'item') and pl_i.size == 1 else np.asarray(pl_i).flatten()[0])
 
-                            gt_mask_i = gt_masks[i] if gt_masks is not None else None
-                            score_val, _ = compute_per_image_score(
-                                pred=pred_label_val,
-                                label=gt_mask_i,
-                                mask=pred,
-                                evaluator=ds_evaluator_list[0],
-                                ev_threshold=ev_threshold
-                            )
-                        elif 'pred_label' in output_dict:
-                            pl = output_dict['pred_label']
-                            if isinstance(pl, torch.Tensor):
-                                pl = pl.detach().cpu().numpy()
-                            score_val = float(pl[i].item() if pl[i].size == 1 else pl[i].flatten()[0])
-                        else:
-                            score_val = float(np.mean(pred))
+                    label_val = None
+                    if labels is not None:
+                        label_val = labels[i].item() if isinstance(labels[i], torch.Tensor) else int(labels[i])
 
-                        label_val = None
-                        if labels is not None:
-                            label_val = labels[i].item() if isinstance(labels[i], torch.Tensor) else int(labels[i])
+                    # Process: compute scores, write CSV, save to folder
+                    process_single_image(
+                        name=str(name),
+                        pred_mask_np=pred_mask_np,
+                        gt_mask=gt_mask_i,
+                        pred_label_val=pred_label_val,
+                        label_val=label_val,
+                        has_labels=has_labels,
+                    )
 
-                        all_names.append(str(name))
-                        all_scores.append(score_val)
-                        all_labels.append(label_val)
-
-                        # Determine subfolder by label if available
-                        if labels is not None:
-                            subfolder = os.path.join(output_dir, f"label_{label_val}")
-                        else:
-                            subfolder = output_dir
-
-                        # Clean name for filename
-                        clean_name = os.path.splitext(os.path.basename(str(name)))[0]
-                        save_path = os.path.join(subfolder, f"{clean_name}.png")
-                        save_prediction_image(pred, save_path)
-
-        # Merge sliding window predictions
+        # ---- Merge sliding window predictions ----
         if is_sliding_window and sw_all_names:
             merge_mode = getattr(dataset, 'merge_mode', 'gaussian')
             print(f"  Merging {len(sw_all_names)} patches with mode='{merge_mode}'...")
-            # Build origin_sizes from metas
             origin_sizes = {}
             for meta in sw_all_metas:
                 if meta.get("split", False):
                     orig_name = meta["original_name"]
                     origin_sizes[orig_name] = (meta["origin_h"], meta["origin_w"])
 
-            # Build predictions dict
             predictions = {}
             for name, pred in zip(sw_all_names, sw_all_preds):
                 predictions[name] = pred
 
             from ForensicHub.common.wrapper.sliding_window_merge import merge_predictions
             merged = merge_predictions(predictions, origin_sizes, mode=merge_mode)
-
             print(f"  Merged into {len(merged)} full images.")
 
-            # Save merged results
             for img_name, pred in merged.items():
-                # Apply threshold if specified
                 if ds_threshold is not None:
                     pred = apply_threshold(pred, ds_threshold)
 
-                mask_score = float(np.mean(pred))
                 label_val = sw_all_labels.get(img_name, None)
+                has_labels = label_val is not None
 
-                all_names.append(str(img_name))
-                all_scores.append(mask_score)
-                all_labels.append(label_val)
-
-                # Determine subfolder by label if available
-                if label_val is not None:
-                    subfolder = os.path.join(output_dir, f"label_{label_val}")
-                else:
-                    subfolder = output_dir
-
-                clean_name = os.path.splitext(os.path.basename(str(img_name)))[0]
-                save_path = os.path.join(subfolder, f"{clean_name}.png")
-                save_prediction_image(pred, save_path)
+                process_single_image(
+                    name=str(img_name),
+                    pred_mask_np=pred,
+                    gt_mask=None,
+                    pred_label_val=None,
+                    label_val=label_val,
+                    has_labels=has_labels,
+                )
 
             print(f"  Saved merged predictions to {output_dir}")
 
-        # ---- Evaluator metrics ----
+        # ---- Close CSV files ----
+        score_csv_f.close()
+        if above_csv_f is not None:
+            above_csv_f.close()
+        if below_csv_f is not None:
+            below_csv_f.close()
+        if nan_csv_f is not None:
+            nan_csv_f.close()
+        print(f"  Score details saved to {score_csv_path}")
+
+        # ---- Evaluator aggregate metrics ----
         if ds_evaluator_list:
             print(Fore.YELLOW + f"\n  Evaluator results for {dataset_name}:" + Style.RESET_ALL)
             eval_results = {}
@@ -510,120 +604,22 @@ def main(args, model_args, run_dataset_args, transform_args, evaluator_args):
                 except Exception as e:
                     print(f"    {ev.name}: could not compute ({e})")
 
-            # Save evaluator results to JSON
             if eval_results:
                 eval_json_path = os.path.join(output_dir, "evaluator_results.json")
                 with open(eval_json_path, 'w') as f:
                     json.dump(eval_results, f, indent=2)
                 print(f"  Evaluator results saved to {eval_json_path}")
 
-        # ---- Score details CSV + score-based folder separation ----
-        if all_names:
-            has_labels = any(l is not None for l in all_labels)
-
-            def _classify(score, threshold):
-                if threshold is None:
-                    return "N/A"
-                if np.isnan(score) or np.isinf(score):
-                    return "nan"
-                return "above" if score >= threshold else "below"
-
-            # Write detailed score CSV
-            score_csv_path = os.path.join(output_dir, "score_details.csv")
-            with open(score_csv_path, 'w') as f:
-                if has_labels:
-                    f.write("name,score,ground_truth_label,classification\n")
-                else:
-                    f.write("name,score,classification\n")
-                for name, score, label_val in zip(all_names, all_scores, all_labels):
-                    classification = _classify(score, ev_threshold)
-                    score_str = f"{score:.6f}" if not (np.isnan(score) or np.isinf(score)) else str(score)
-                    if has_labels:
-                        gt = label_val if label_val is not None else ""
-                        f.write(f"{name},{score_str},{gt},{classification}\n")
-                    else:
-                        f.write(f"{name},{score_str},{classification}\n")
-            print(f"  Score details saved to {score_csv_path}")
-
-            # Score-based folder separation
-            if ev_threshold is not None:
-                above_dir = os.path.join(output_dir, "above_score")
-                below_dir = os.path.join(output_dir, "below_score")
-                nan_dir = os.path.join(output_dir, "nan_score")
-                os.makedirs(above_dir, exist_ok=True)
-                os.makedirs(below_dir, exist_ok=True)
-
-                count_above = 0
-                count_below = 0
-                count_nan = 0
-
-                above_entries = []
-                below_entries = []
-                nan_entries = []
-                for name, score, label_val in zip(all_names, all_scores, all_labels):
-                    if np.isnan(score) or np.isinf(score):
-                        nan_entries.append((name, score, label_val))
-                        count_nan += 1
-                    elif score >= ev_threshold:
-                        above_entries.append((name, score, label_val))
-                        count_above += 1
-                    else:
-                        below_entries.append((name, score, label_val))
-                        count_below += 1
-
-                # Only create nan_dir if there are nan scores
-                if nan_entries:
-                    os.makedirs(nan_dir, exist_ok=True)
-
-                all_folders = [(above_dir, above_entries), (below_dir, below_entries)]
-                if nan_entries:
-                    all_folders.append((nan_dir, nan_entries))
-
-                for folder, entries in all_folders:
-                    csv_path = os.path.join(folder, "predictions.csv")
-                    with open(csv_path, 'w') as f:
-                        if has_labels:
-                            f.write("name,score,ground_truth_label\n")
-                            for n, s, l in entries:
-                                gt = l if l is not None else ""
-                                s_str = f"{s:.6f}" if not (np.isnan(s) or np.isinf(s)) else str(s)
-                                f.write(f"{n},{s_str},{gt}\n")
-                        else:
-                            f.write("name,score\n")
-                            for n, s, _ in entries:
-                                s_str = f"{s:.6f}" if not (np.isnan(s) or np.isinf(s)) else str(s)
-                                f.write(f"{n},{s_str}\n")
-
-                # Copy mask images to filtered folders if mask prediction
-                if predict_mask:
-                    for name, score, label_val in zip(all_names, all_scores, all_labels):
-                        clean_name = os.path.splitext(os.path.basename(str(name)))[0]
-                        if np.isnan(score) or np.isinf(score):
-                            target_dir = nan_dir
-                        elif score >= ev_threshold:
-                            target_dir = above_dir
-                        else:
-                            target_dir = below_dir
-
-                        # Find source image in output_dir
-                        if label_val is not None:
-                            src_path = os.path.join(output_dir, f"label_{label_val}", f"{clean_name}.png")
-                        else:
-                            src_path = os.path.join(output_dir, f"{clean_name}.png")
-
-                        if os.path.exists(src_path):
-                            os.makedirs(target_dir, exist_ok=True)
-                            dst_path = os.path.join(target_dir, f"{clean_name}.png")
-                            shutil.copy2(src_path, dst_path)
-
-                msg = (
-                    Fore.GREEN + f"  Score filtering (threshold={ev_threshold}):\n"
-                    f"    Above: {count_above} samples -> {above_dir}\n"
-                    f"    Below: {count_below} samples -> {below_dir}"
-                )
-                if count_nan > 0:
-                    msg += f"\n    NaN/Inf: {count_nan} samples -> {nan_dir}"
-                print(msg + Style.RESET_ALL)
+        # ---- Summary ----
+        if ds_score_threshold is not None:
+            msg = (
+                Fore.GREEN + f"  Score filtering (score_threshold={ds_score_threshold}):\n"
+                f"    Above: {count_above} samples -> {above_dir}\n"
+                f"    Below: {count_below} samples -> {below_dir}"
+            )
+            if count_nan > 0:
+                msg += f"\n    NaN/Inf: {count_nan} samples -> {nan_dir}"
+            print(msg + Style.RESET_ALL)
 
         ds_time = time.time() - start_time
         print(f"  Done with {dataset_name} in {str(datetime.timedelta(seconds=int(ds_time)))}")
