@@ -108,17 +108,17 @@ transform:
     compression_type: cv
 
 # ---- Evaluators (optional) ----
-# Evaluators compute metrics (AP, MCC, TPR, TNR, etc.) on inference results.
-# Requires ground truth labels in the dataset.
-# Results are saved to evaluator_results.json in each dataset's output dir.
-# The threshold from the evaluator is used to separate results into
-# above_score/ and below_score/ folders, with a detailed score_details.csv.
+# Evaluators compute per-image metrics and aggregate results.
+# The FIRST evaluator's score_threshold is used to split results into
+# above_score/ and below_score/ folders.
+# - threshold: pixel binarization threshold (for computing F1, IoU, etc.)
+# - score_threshold: per-image metric threshold for folder separation
 # evaluator:
-#   - name: ImageAP
-#   - name: ImageMCC
+#   - name: PixelF1
+#     score_threshold: 0.7
 #     init_config:
 #       threshold: 0.5
-#   - name: ImageTPR
+#   - name: PixelIOU
 #     init_config:
 #       threshold: 0.5
 
